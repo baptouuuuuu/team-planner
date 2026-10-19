@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Team Planner</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- All visible texts are injected by app.js from the LABELS object -->
+  <header><h1 id="app-title"></h1>
+    <div class="toolbar">
+      <button id="btn-export" type="button"></button>
+      <button id="btn-import" type="button"></button>
+      <button id="btn-reset" type="button"></button>
+      <input id="file-import" type="file" accept="application/json" hidden>
+    </div>
+  </header>
+  <main>
+    <section id="settings-section" class="panel"></section>
+    <div class="side">
+      <section id="tasks-section" class="panel"></section>
+      <section id="people-section" class="panel"></section>
+    </div>
+    <section id="timeline-section" class="panel wide"></section>
+    <section id="byperson-section" class="panel wide"></section>
+  </main>
+  <div id="popup-overlay" class="overlay" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>
