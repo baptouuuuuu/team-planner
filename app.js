@@ -346,6 +346,7 @@ function renderTimeline() {
       for (const t of state.tasks) {
         const need = getNeed(t.id, s);
         const cls = ["cell", cellStatus(t.id, s)];
+        if (getAssigned(t.id, s).length > 5) cls.push("dense");
         const minus = el("button", { type: "button", class: "ctrl minus", text: "−", title: LABELS.decrease, disabled: need === 0 });
         minus.dataset.action = "need-minus";
         const plus = el("button", { type: "button", class: "ctrl plus", text: "+", title: LABELS.increase });
@@ -513,13 +514,14 @@ function setupEvents() {
 
   // Drag the fill handle of a cell down to copy its team onto the slots below
   let fill = null; // { taskId, from, to }
-  const clearFill = () => document.querySelectorAll(".fill-target").forEach((n) => n.classList.remove("fill-target"));
+  const clearFill = () => document.querySelectorAll(".fill-target, .fill-source, .fill-hit").forEach((n) => n.classList.remove("fill-target", "fill-source", "fill-hit"));
   document.addEventListener("pointerdown", (e) => {
     const h = e.target.closest(".fill-handle");
     const cell = h && h.closest("td.cell");
     if (!cell) return;
     e.preventDefault();
     fill = { taskId: cell.dataset.task, from: Number(cell.dataset.slot), to: Number(cell.dataset.slot) };
+    cell.classList.add("fill-source");
   });
   document.addEventListener("pointermove", (e) => {
     if (!fill) return;
@@ -530,9 +532,12 @@ function setupEvents() {
     if (dayOf(s) !== dayOf(fill.from)) return;
     fill.to = Math.max(s, fill.from);
     clearFill();
-    for (let k = fill.from + 1; k <= fill.to; k++) {
+    for (let k = fill.from; k <= fill.to; k++) {
       const n = document.querySelector('td.cell[data-task="' + fill.taskId + '"][data-slot="' + k + '"]');
-      if (n) n.classList.add("fill-target");
+      if (!n) continue;
+      n.classList.add(k === fill.from ? "fill-source" : "fill-target");
+      const lbl = n.parentElement.querySelector(".time-label");
+      if (lbl) lbl.classList.add("fill-hit");
     }
   });
   document.addEventListener("pointerup", () => {
@@ -540,7 +545,14 @@ function setupEvents() {
     const f = fill;
     fill = null;
     clearFill();
-    if (f.to > f.from) { suppressClick = true; copySlot(f.taskId, f.from, f.to); }
+    if (f.to > f.from) {
+      suppressClick = true;
+      copySlot(f.taskId, f.from, f.to);
+      for (let k = f.from + 1; k <= f.to; k++) {
+        const n = document.querySelector('td.cell[data-task="' + f.taskId + '"][data-slot="' + k + '"]');
+        if (n) n.classList.add("fill-done");
+      }
+    }
   });
   document.addEventListener("click", (e) => {
     if (suppressClick) { suppressClick = false; e.stopImmediatePropagation(); }
