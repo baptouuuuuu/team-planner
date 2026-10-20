@@ -41,12 +41,13 @@ table.timeline { border-collapse: separate; border-spacing: 3px 3px; }
 .timeline .time-label { font-size: .7rem; font-weight: 500; color: var(--text); text-align: right; padding-right: 8px; white-space: nowrap; vertical-align: top; }
 .timeline .time-label.minor { color: var(--muted); }
 .cell { position: relative; height: 104px; width: 140px; min-width: 140px; max-width: 140px; overflow: hidden; padding: 6px 8px 22px; cursor: pointer; background: var(--panel2);  user-select: none; vertical-align: top; }
-.cell { border: 1px solid var(--border); border-radius: 8px; }
+.cell { border: 1px solid var(--border); border-radius: 12px; }
 .cell .fill-handle { position: absolute; left: 50%; bottom: 3px; transform: translateX(-50%); width: 56px; height: 16px; background: var(--accent); color: #fff; border-radius: 8px; cursor: ns-resize; display: flex; align-items: center; justify-content: center; font-size: .6rem; line-height: 1; letter-spacing: 1px; touch-action: none; z-index: 2; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
 .cell .fill-handle::before { content: '▼ ▼ ▼'; }
 .cell .fill-handle:hover { background: #818cf8; }
 body.filling, body.filling * { cursor: ns-resize !important; user-select: none; }
-.fill-ghost { position: absolute; inset: 0; padding: 6px 8px 22px; background: rgba(99,102,241,.28); pointer-events: none; z-index: 1; }
+.fill-ghost { position: absolute; inset: 0; padding: 6px 8px 22px; background: var(--panel2); background-image: linear-gradient(rgba(99,102,241,.35), rgba(99,102,241,.35)); border-radius: 11px; pointer-events: none; z-index: 1; }
+.fill-ghost .ctrls { display: none; }
 .fill-tip { position: fixed; z-index: 20; pointer-events: none; background: var(--accent); color: #fff; font-weight: 700; font-size: .8rem; padding: 4px 10px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.5); white-space: nowrap; }
 .cell.fill-source { outline: 2px solid var(--accent); outline-offset: -2px; }
 .cell.fill-target { outline: 2px dashed var(--accent); outline-offset: -2px; animation: fill-pulse .7s ease-in-out infinite alternate; }
@@ -54,20 +55,16 @@ body.filling, body.filling * { cursor: ns-resize !important; user-select: none; 
 .timeline .time-label.fill-hit { color: #fff; background: var(--accent); border-radius: 6px; font-weight: 700; animation: fill-pulse .7s ease-in-out infinite alternate; }
 .cell.fill-done { animation: fill-done .5s ease-out; }
 @keyframes fill-done { 0% { box-shadow: 0 0 0 0 rgba(99,102,241,.9); } 100% { box-shadow: 0 0 0 12px rgba(99,102,241,0); } }
-.cell.ok { background: rgba(34,197,94,.18); border-left-color: var(--ok); }
-.cell.under { background: rgba(239,68,68,.2); border-left-color: var(--high); }
-.cell.over { background: rgba(245,158,11,.18); border-left-color: var(--low); }
+.cell.ok { background: linear-gradient(160deg, rgba(34,197,94,.28), rgba(34,197,94,.1)); border-left-color: var(--ok); }
+.cell.under { background: linear-gradient(160deg, rgba(239,68,68,.3), rgba(239,68,68,.1)); border-left-color: var(--high); }
+.cell.over { background: linear-gradient(160deg, rgba(245,158,11,.3), rgba(245,158,11,.1)); border-left-color: var(--low); }
 .cell.zero { background: transparent; border-left-color: var(--border); }
 .cell { border-left-width: 3px; }
 .cell .cell-inner { display: flex; flex-direction: column; align-items: center; gap: 5px; height: 100%; }
-.cell .count { align-self: center; }
+.cell .count { font-weight: 700; font-size: .68rem; letter-spacing: .04em; padding: 1px 10px; border-radius: 999px; background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.15); flex: none; }
 .cell .count { font-weight: 700; font-size: .7rem; padding: 1px 7px; border-radius: 999px; background: rgba(255,255,255,.1); flex: none; }
-.cell .chips { display: flex; flex-wrap: wrap; justify-content: center; align-content: center; gap: 3px; flex: 1; min-width: 0; width: 100%; overflow: hidden; text-align: center; }
-.cell.dense1 .chips { gap: 2px; }
-.cell.dense1 .chip { font-size: .58rem; padding: 0 4px; }
-.cell.dense2 .chips { gap: 1px; }
-.cell.dense2 .chip { font-size: .52rem; padding: 0 3px; line-height: 1.25; }
-.cell .chip { font-size: .62rem; line-height: 1.4; padding: 0 6px; border-radius: 999px; background: rgba(255,255,255,.14); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; }
+.cell .chips { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; align-content: center; gap: 4px; flex: 1; min-height: 0; min-width: 0; width: 100%; overflow: hidden; text-align: center; }
+.cell .chip { font-size: .68rem; font-weight: 500; line-height: 1.5; padding: 0 9px; border-radius: 999px; background: linear-gradient(135deg, rgba(255,255,255,.22), rgba(255,255,255,.08)); border: 1px solid rgba(255,255,255,.18); backdrop-filter: blur(2px); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; }
 .cell .ctrls { position: absolute; top: 5px; right: 6px; display: inline-flex; flex: none; background: rgba(0,0,0,.35); border-radius: 999px; padding: 1px; gap: 1px; opacity: .35; transition: opacity .15s; }
 .cell:hover .ctrls, .cell:focus-within .ctrls { opacity: 1; }
 .cell .ctrl { width: 20px; height: 20px; padding: 0; line-height: 1; font-size: .85rem; border: 0; border-radius: 50%; background: transparent; display: inline-flex; align-items: center; justify-content: center; }

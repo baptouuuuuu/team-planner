@@ -346,10 +346,6 @@ function renderTimeline() {
       for (const t of state.tasks) {
         const need = getNeed(t.id, s);
         const cls = ["cell", cellStatus(t.id, s)];
-        const assignedNames = getAssigned(t.id, s).map(getPerson).filter(Boolean).map((p) => p.name);
-        const chars = assignedNames.reduce((n, x) => n + x.length, 0);
-        if (assignedNames.length > 7 || chars > 70) cls.push("dense2");
-        else if (assignedNames.length > 4 || chars > 35) cls.push("dense1");
         const minus = el("button", { type: "button", class: "ctrl minus", text: "−", title: LABELS.decrease, disabled: need === 0 });
         minus.dataset.action = "need-minus";
         const plus = el("button", { type: "button", class: "ctrl plus", text: "+", title: LABELS.increase });
