@@ -14,8 +14,8 @@ Application web de planification d'équipe (interface en français), 100 % stati
 Ouvrir `index.html` dans un navigateur (ou `python3 -m http.server`).
 
 ## Déploiement sur GitHub Pages
-1. Pousser le code sur la branche `main`.
-2. *Settings → Pages* → *Build and deployment* : Source **Deploy from a branch**, branche `main`, dossier `/ (root)`.
+1. Dans *Settings → Pages → Build and deployment*, choisir **GitHub Actions** comme source.
+2. Le workflow déploie automatiquement le site à chaque push sur `main`. Il peut aussi être lancé manuellement depuis l'onglet *Actions*.
 3. Le site est disponible à `https://<utilisateur>.github.io/team-planner/`.
 
 ## Modifier les textes
