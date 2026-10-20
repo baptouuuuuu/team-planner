@@ -353,8 +353,10 @@ function renderTimeline() {
         const names = getAssigned(t.id, s).map(getPerson).filter(Boolean)
           .map((p) => el("span", { class: "chip", text: p.name, title: p.name }));
         const td = el("td", { class: cls.join(" ") },
-          el("span", { class: "count", text: getAssigned(t.id, s).length + "/" + need }),
-          el("span", { class: "chips" }, ...names), el("span", { class: "ctrls" }, minus, plus),
+          el("div", { class: "cell-inner" },
+            el("span", { class: "count", text: getAssigned(t.id, s).length + "/" + need }),
+            el("span", { class: "chips" }, ...names),
+            el("span", { class: "ctrls" }, minus, plus)),
           el("span", { class: "fill-handle", title: LABELS.fillHandle }));
         td.dataset.task = t.id;
         td.dataset.slot = s;
