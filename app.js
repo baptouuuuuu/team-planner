@@ -11,6 +11,8 @@ const LABELS = {
   export: "Exporter (JSON)",
   import: "Importer (JSON)",
   resetAll: "Tout réinitialiser",
+  autoFill: "Remplir automatiquement",
+  autoFillHint: "Complète les postes manquants sans modifier les affectations existantes",
   confirmResetAll: "Supprimer toutes les données ?",
   importError: "Fichier invalide : import impossible.",
   settingsTitle: "Période",
@@ -205,6 +207,32 @@ function copySlot(taskId, fromSlot, toSlot) {
   commit();
 }
 
+/** Fills missing positions: keeps existing assignments, favours continuity then the least-loaded people (respecting max daily hours) */
+function autoFill() {
+  const hours = state.people.map((p) => ({ id: p.id, h: dailyHours(p.id) }));
+  const load = (id) => hours.find((x) => x.id === id).h;
+  for (let s = 0; s < totalSlots(); s++) {
+    const d = dayOf(s);
+    for (const t of state.tasks) {
+      const list = getAssigned(t.id, s).slice();
+      let missing = getNeed(t.id, s) - list.length;
+      if (missing <= 0) continue;
+      const prev = s > 0 && dayOf(s - 1) === d ? getAssigned(t.id, s - 1) : [];
+      const candidates = state.people
+        .filter((p) => !list.includes(p.id) && !busyTask(p.id, s, t.id) && load(p.id)[d] + slotHours() <= state.settings.maxDaily)
+        .sort((a, b) => (prev.includes(b.id) - prev.includes(a.id)) || (load(a.id)[d] - load(b.id)[d]));
+      for (const p of candidates) {
+        if (missing <= 0) break;
+        list.push(p.id);
+        load(p.id)[d] += slotHours();
+        missing--;
+      }
+      state.assignments[key(t.id, s)] = list;
+    }
+  }
+  commit();
+}
+
 function deleteTask(taskId) {
   state.tasks = state.tasks.filter((t) => t.id !== taskId);
   for (const k of Object.keys(state.needs)) if (k.startsWith(taskId + "|")) delete state.needs[k];
@@ -325,7 +353,9 @@ function renderPeople() {
 
 function renderTimeline() {
   const box = $("timeline-section");
-  box.replaceChildren(el("h2", { text: LABELS.timelineTitle }));
+  const auto = el("button", { type: "button", class: "auto-fill", text: "✨ " + LABELS.autoFill, title: LABELS.autoFillHint, disabled: !state.people.length || !state.tasks.length });
+  auto.dataset.action = "auto-fill";
+  box.replaceChildren(el("div", { class: "section-head" }, el("h2", { text: LABELS.timelineTitle }), auto));
   if (!state.tasks.length) {
     box.append(el("p", { class: "empty", text: LABELS.noTasksTimeline }));
     return;
@@ -503,6 +533,7 @@ function setupEvents() {
     if (e.target.closest(".fill-handle")) return;
     if (action === "task-delete" && confirm(LABELS.confirmDeleteTask)) deleteTask(actionEl.dataset.id);
     else if (action === "person-delete" && confirm(LABELS.confirmDeletePerson)) deletePerson(actionEl.dataset.id);
+    else if (action === "auto-fill") autoFill();
     else if (action === "need-plus" && cell) adjustNeed(cell.dataset.task, Number(cell.dataset.slot), 1);
     else if (action === "need-minus" && cell) adjustNeed(cell.dataset.task, Number(cell.dataset.slot), -1);
     else if (action === "toggle-person" && openPopup) toggleAssignment(openPopup.taskId, openPopup.slot, actionEl.dataset.person);
