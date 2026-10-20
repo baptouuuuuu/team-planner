@@ -5,7 +5,7 @@ Application web de planification d'équipe (interface en français), 100 % stati
 ## Fonctionnalités
 - **Tâches** : ajout, renommage, suppression, choix de la couleur.
 - **Personnes** : ajout, suppression, total d'heures assignées sur la période, indicateur si les heures par jour sortent de la plage min/max (orange = trop peu, rouge = trop, vert = ok).
-- **Chronogramme** (lignes = tâches, colonnes = créneaux) : compteur `affectés/requis`, boutons **+** / **−** par cellule, fusion visuelle des créneaux adjacents ayant le même besoin, couleur verte (complet), orange (manque) ou rouge (surplus).
+- **Chronogramme** (lignes = tâches, colonnes = créneaux) : compteur `affectés/requis`, boutons **+** / **−** par cellule, une case par créneau, poignée en bas à droite pour étirer et copier l’équipe (et le besoin) sur les créneaux du dessous, couleur verte (complet), orange (manque) ou rouge (surplus).
 - **Popup d'affectation** au clic sur une cellule : nom et couleur de la tâche, personnes cliquables (affecter / retirer), fermeture par bouton, clic extérieur ou Échap. Une personne déjà affectée à une autre tâche sur le même créneau est grisée.
 - **Période configurable** (jours, heures, créneaux 30 min / 1 h). Modifier la période réinitialise besoins et affectations (après confirmation).
 - **Persistance** dans le `localStorage` + **export / import JSON**.
