@@ -11,6 +11,34 @@ const LABELS = {
   export: "Exporter (JSON)",
   import: "Importer (JSON)",
   resetAll: "Tout réinitialiser",
+  modeNormal: "👁 Mode normal",
+  modeSetup: "⚙ Mode paramétrage",
+  modeNormalHint: "Cliquez pour passer en mode paramétrage (périodes, tâches, personnes)",
+  modeSetupHint: "Cliquez pour revenir au mode normal",
+  lockedBtn: "🔒 Verrouillé",
+  unlockedBtn: "🔓 Modification activée",
+  lockedHint: "Verrouillé : cliquez pour autoriser les modifications",
+  unlockedHint: "Cliquez pour verrouiller et éviter les modifications involontaires",
+  lockedWarn: "Planning verrouillé : activez la modification (bouton en haut) pour changer quelque chose.",
+  historyTitle: "Historique des modifications",
+  historyEmpty: "Aucune modification pour le moment.",
+  historyClear: "Vider l'historique",
+  codeCreate: "Créez un code de sécurité (4 caractères minimum). Il sera demandé pour déverrouiller, exporter et vider l'historique.",
+  codeConfirm: "Confirmez le code :",
+  codeAsk: "Entrez le code de sécurité :",
+  codeWrong: "Code incorrect.",
+  codeMismatch: "Les codes ne correspondent pas.",
+  codeTooShort: "Code trop court (4 caractères minimum).",
+  confirmHistoryClear: "Vider définitivement l'historique ?",
+  historyMany: "modifications",
+  autoFill: "Remplir automatiquement",
+  clearAll: "Tout supprimer",
+  clearAllHint: "Supprime toutes les affectations du chronogramme",
+  confirmClearAll: "Supprimer toutes les affectations ? Les tâches, personnes et besoins sont conservés.",
+  autoFillDone: "Remplissage terminé.",
+  autoFillUnfilled: "postes non pourvus (règles ou personnes insuffisantes)",
+  autoFillBelowMin: "personne(s) sous le minimum d'heures par jour",
+  autoFillHint: "Complète les postes manquants sans modifier les affectations existantes",
   confirmResetAll: "Supprimer toutes les données ?",
   importError: "Fichier invalide : import impossible.",
   settingsTitle: "Période",
@@ -25,6 +53,8 @@ const LABELS = {
   minutes60: "1 heure",
   minDaily: "Heures min. par jour",
   maxDaily: "Heures max. par jour",
+  maxShiftHours: "Durée max. d'un créneau (h, 0 = illimité)",
+  minBreakHours: "Pause min. entre créneaux (h)",
   invalidSettings: "Paramètres invalides : la fin doit suivre le début et la durée doit être un multiple du créneau.",
   confirmGranularity: "Changer la période réinitialisera les besoins et les affectations. Continuer ?",
   tasksTitle: "Tâches",
@@ -64,7 +94,8 @@ const LABELS = {
   popupNoPeople: "Ajoutez d'abord des personnes.",
   popupBusyOn: "déjà sur",
   fillHandle: "Étirer vers le bas pour copier l'équipe et le besoin",
-  byPersonTitle: "Vue par personne (lecture seule)",
+  byPersonTitle: "Vue par personne",
+  personCellHint: "Cliquer pour changer de tâche (jusqu'à vide, puis retour au début)",
 };
 
 /* --------------------------------------------------------------------------
@@ -77,12 +108,13 @@ const PALETTE = ["#2563eb", "#db2777", "#059669", "#d97706", "#7c3aed", "#0891b2
 
 function defaultState() {
   return {
-    settings: { days: 1, startHour: 8, endHour: 18, slotMinutes: 60, minDaily: 4, maxDaily: 8 },
+    settings: { days: 1, startHour: 8, endHour: 18, slotMinutes: 60, minDaily: 4, maxDaily: 8, maxShiftHours: 2, minBreakHours: 2 },
     tasks: [],
     people: [],
     needs: {},       // "taskId|slot" -> required count (missing = DEFAULT_NEED)
     assignments: {}, // "taskId|slot" -> array of person ids
     nextId: 1,
+    history: [],     // [{ t: ISO date, text }] newest first
   };
 }
 
@@ -98,7 +130,7 @@ function isValidState(s) {
 function loadState() {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (isValidState(parsed)) return Object.assign(defaultState(), parsed);
+    if (isValidState(parsed)) return Object.assign(defaultState(), parsed, { settings: Object.assign(defaultState().settings, parsed.settings) });
   } catch (e) { /* ignore corrupted storage */ }
   return defaultState();
 }
@@ -205,6 +237,73 @@ function copySlot(taskId, fromSlot, toSlot) {
   commit();
 }
 
+/**
+ * Fills missing positions without touching existing assignments. Rules: one task per person and slot,
+ * max shift length, min break between shifts (same day), max daily hours; people furthest below
+ * the daily minimum are served first, and continuing the same task is preferred.
+ */
+function autoFill() {
+  const cfg = state.settings;
+  const per = slotsPerDay();
+  const maxRun = cfg.maxShiftHours > 0 ? Math.floor((cfg.maxShiftHours * 60) / cfg.slotMinutes) : Infinity;
+  const minGap = Math.ceil(((cfg.minBreakHours || 0) * 60) / cfg.slotMinutes);
+  const occ = {};
+  const hours = {};
+  for (const p of state.people) {
+    occ[p.id] = new Array(totalSlots()).fill(false);
+    hours[p.id] = new Array(cfg.days).fill(0);
+  }
+  for (const t of state.tasks) {
+    for (let s = 0; s < totalSlots(); s++) {
+      for (const id of getAssigned(t.id, s)) if (occ[id]) { occ[id][s] = true; hours[id][dayOf(s)] += slotHours(); }
+    }
+  }
+  /** Would working slot s keep the person's shifts within the rules? Only the shift containing s and its neighbours are checked. */
+  const allowed = (id, s) => {
+    const o = occ[id];
+    const lo = dayOf(s) * per, hi = lo + per - 1;
+    let a = s, b = s;
+    while (a - 1 >= lo && o[a - 1]) a--;
+    while (b + 1 <= hi && o[b + 1]) b++;
+    if (b - a + 1 > maxRun) return false;
+    let p = a - 1;
+    while (p >= lo && !o[p]) p--;
+    if (p >= lo && a - p - 1 < minGap) return false;
+    let n = b + 1;
+    while (n <= hi && !o[n]) n++;
+    if (n <= hi && n - b - 1 < minGap) return false;
+    return true;
+  };
+  let unfilled = 0;
+  for (let s = 0; s < totalSlots(); s++) {
+    const d = dayOf(s);
+    for (const t of state.tasks) {
+      const list = getAssigned(t.id, s).slice();
+      const missing = getNeed(t.id, s) - list.length;
+      if (missing <= 0) continue;
+      const prev = s % per > 0 ? getAssigned(t.id, s - 1) : [];
+      const candidates = state.people
+        .filter((p) => !list.includes(p.id) && !occ[p.id][s] && hours[p.id][d] + slotHours() <= cfg.maxDaily && allowed(p.id, s))
+        .sort((x, y) => (prev.includes(y.id) - prev.includes(x.id)) || (hours[x.id][d] - hours[y.id][d]));
+      const picked = candidates.slice(0, missing);
+      for (const p of picked) { list.push(p.id); occ[p.id][s] = true; hours[p.id][d] += slotHours(); }
+      unfilled += missing - picked.length;
+      state.assignments[key(t.id, s)] = list;
+    }
+  }
+  const belowMin = state.people.filter((p) => hours[p.id].some((h) => h < cfg.minDaily)).length;
+  commit();
+  const notes = [];
+  if (unfilled) notes.push(unfilled + " " + LABELS.autoFillUnfilled);
+  if (belowMin) notes.push(belowMin + " " + LABELS.autoFillBelowMin);
+  alert(LABELS.autoFillDone + (notes.length ? "\n- " + notes.join("\n- ") : ""));
+}
+
+function clearAllAssignments() {
+  state.assignments = {};
+  commit();
+}
+
 function deleteTask(taskId) {
   state.tasks = state.tasks.filter((t) => t.id !== taskId);
   for (const k of Object.keys(state.needs)) if (k.startsWith(taskId + "|")) delete state.needs[k];
@@ -220,8 +319,167 @@ function deletePerson(personId) {
   commit();
 }
 
+/* --- Security code: stored as a salted hash (separately from the planner data) --- */
+const CODE_KEY = "team-planner-code-v1";
+
+async function hashCode(code) {
+  const text = "team-planner:" + code;
+  if (window.crypto && crypto.subtle) {
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+    return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57; // fallback for non-secure contexts
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 2654435761);
+    h2 = Math.imul(h2 ^ c, 1597334677);
+  }
+  return "f" + (h1 >>> 0).toString(16) + (h2 >>> 0).toString(16);
+}
+
+/** Asks for the security code (creating it the first time). Resolves to true when granted. */
+async function requireCode() {
+  let stored = null;
+  try { stored = localStorage.getItem(CODE_KEY); } catch (e) { /* storage unavailable */ }
+  if (!stored) {
+    const c1 = prompt(LABELS.codeCreate);
+    if (c1 === null) return false;
+    if (c1.length < 4) { alert(LABELS.codeTooShort); return false; }
+    const c2 = prompt(LABELS.codeConfirm);
+    if (c2 === null) return false;
+    if (c1 !== c2) { alert(LABELS.codeMismatch); return false; }
+    try { localStorage.setItem(CODE_KEY, await hashCode(c1)); } catch (e) { /* ignore */ }
+    return true;
+  }
+  const c = prompt(LABELS.codeAsk);
+  if (c === null) return false;
+  if ((await hashCode(c)) === stored) return true;
+  alert(LABELS.codeWrong);
+  return false;
+}
+
+/* --- Edit lock: the planner starts locked so nothing is changed by accident --- */
+let locked = true;
+
+/** True when the element triggers a modification of the planner data */
+function isMutating(target) {
+  if (!target || !target.closest) return false;
+  if (target.closest("td.cell, td.pcell, .fill-handle, #btn-reset, #btn-import")) return true;
+  if (target.closest("#task-form, #person-form")) return true;
+  const a = target.closest("[data-action]");
+  if (a && !["popup-close", "lock-toggle"].includes(a.dataset.action)) return true;
+  if (target.closest("[data-setting]")) return true;
+  return false;
+}
+
+function warnLocked() {
+  const b = $("btn-lock");
+  b.classList.remove("shake");
+  void b.offsetWidth;
+  b.classList.add("shake");
+  b.title = LABELS.lockedWarn;
+}
+
+/* --- Display mode: "normal" hides edit/delete buttons and the periods settings; "setup" shows them --- */
+let setupMode = false;
+
+function renderMode() {
+  const b = $("btn-mode");
+  b.textContent = setupMode ? LABELS.modeSetup : LABELS.modeNormal;
+  b.title = setupMode ? LABELS.modeSetupHint : LABELS.modeNormalHint;
+  b.classList.toggle("is-setup", setupMode);
+  document.body.classList.toggle("setup-mode", setupMode);
+  document.body.classList.toggle("normal-mode", !setupMode);
+}
+
+function renderLock() {
+  const b = $("btn-lock");
+  b.textContent = locked ? LABELS.lockedBtn : LABELS.unlockedBtn;
+  b.title = locked ? LABELS.lockedHint : LABELS.unlockedHint;
+  b.classList.toggle("is-locked", locked);
+  $("btn-auto-fill").disabled = !state.people.length || !state.tasks.length;
+  document.body.classList.toggle("locked", locked);
+}
+
+/* --- History: every commit is diffed against the previous state and logged --- */
+const HISTORY_MAX = 300;
+const snapshot = () => JSON.parse(JSON.stringify(Object.assign({}, state, { history: undefined })));
+let lastSnapshot = snapshot();
+
+function describeChanges(prev, cur) {
+  const out = [];
+  const name = (list, id) => { const x = list.find((i) => i.id === id); return x ? x.name : id; };
+  const per = Math.round(((cur.settings.endHour - cur.settings.startHour) * 60) / cur.settings.slotMinutes);
+  const when = (slot) => {
+    const m = cur.settings.startHour * 60 + (slot % per) * cur.settings.slotMinutes;
+    return (per ? LABELS.dayShort + (Math.floor(slot / per) + 1) + " " : "") + formatMinutes(m);
+  };
+  for (const t of cur.tasks) {
+    const o = prev.tasks.find((x) => x.id === t.id);
+    if (!o) out.push("Tâche ajoutée : " + t.name);
+    else {
+      if (o.name !== t.name) out.push("Tâche renommée : " + o.name + " → " + t.name);
+      if (o.color !== t.color) out.push("Couleur modifiée : " + t.name);
+      if (o.defaultNeed !== t.defaultNeed) out.push("Besoin par défaut de " + t.name + " : " + (o.defaultNeed === undefined ? DEFAULT_NEED : o.defaultNeed) + " → " + t.defaultNeed);
+    }
+  }
+  for (const t of prev.tasks) if (!cur.tasks.some((x) => x.id === t.id)) out.push("Tâche supprimée : " + t.name);
+  for (const p of cur.people) if (!prev.people.some((x) => x.id === p.id)) out.push("Personne ajoutée : " + p.name);
+  for (const p of prev.people) if (!cur.people.some((x) => x.id === p.id)) out.push("Personne supprimée : " + p.name);
+  for (const k of Object.keys(cur.settings)) {
+    if (prev.settings[k] !== cur.settings[k]) out.push("Paramètre " + (LABELS[k] || k) + " : " + prev.settings[k] + " → " + cur.settings[k]);
+  }
+  const slotChanges = [];
+  const keys = new Set(Object.keys(prev.assignments).concat(Object.keys(cur.assignments)));
+  for (const k of keys) {
+    const [tid, slot] = k.split("|");
+    const before = prev.assignments[k] || [], after = cur.assignments[k] || [];
+    const tname = name(cur.tasks.concat(prev.tasks), tid);
+    for (const id of after) if (!before.includes(id)) slotChanges.push({ add: true, text: name(cur.people.concat(prev.people), id) + " ajouté à " + tname + " (" + when(Number(slot)) + ")" });
+    for (const id of before) if (!after.includes(id)) slotChanges.push({ add: false, text: name(cur.people.concat(prev.people), id) + " retiré de " + tname + " (" + when(Number(slot)) + ")" });
+  }
+  if (slotChanges.length > 6) {
+    const n = slotChanges.filter((c) => c.add).length;
+    out.push(n + " affectation(s) ajoutée(s), " + (slotChanges.length - n) + " retirée(s)");
+  } else slotChanges.forEach((c) => out.push(c.text));
+  const needKeys = new Set(Object.keys(prev.needs).concat(Object.keys(cur.needs)));
+  const needChanges = [];
+  for (const k of needKeys) {
+    if (prev.needs[k] === cur.needs[k]) continue;
+    const [tid, slot] = k.split("|");
+    needChanges.push("Besoin " + name(cur.tasks.concat(prev.tasks), tid) + " (" + when(Number(slot)) + ") : " + (prev.needs[k] === undefined ? "défaut" : prev.needs[k]) + " → " + (cur.needs[k] === undefined ? "défaut" : cur.needs[k]));
+  }
+  if (needChanges.length > 6) out.push(needChanges.length + " besoins modifiés");
+  else out.push(...needChanges);
+  return out;
+}
+
+function recordHistory() {
+  const cur = snapshot();
+  let texts = [];
+  try { texts = describeChanges(lastSnapshot, cur); } catch (e) { texts = []; }
+  lastSnapshot = cur;
+  if (!texts.length) return;
+  const t = new Date().toISOString();
+  if (!Array.isArray(state.history)) state.history = [];
+  state.history = texts.map((text) => ({ t, text })).reverse().concat(state.history).slice(0, HISTORY_MAX);
+}
+
+function renderHistory() {
+  const box = $("history-section");
+  box.replaceChildren(el("div", { class: "section-head" }, el("span", { class: "empty", text: state.history.length + " " + LABELS.historyMany })));
+  if (!state.history.length) { box.append(el("p", { class: "empty", text: LABELS.historyEmpty })); return; }
+  const list = el("ul", { class: "history" });
+  for (const h of state.history) {
+    const d = new Date(h.t);
+    list.append(el("li", {}, el("time", { text: d.toLocaleDateString("fr-FR") + " " + d.toLocaleTimeString("fr-FR") }), el("span", { text: h.text })));
+  }
+  box.append(list);
+}
+
 /** Save then re-render everything (including the popup if open) */
 function commit() {
+  recordHistory();
   saveState();
   render();
 }
@@ -272,7 +530,9 @@ function renderSettings() {
     hourSelect("endHour", 0.5, MAX_END),
     el("label", { text: LABELS.slotLength }, select),
     numField(LABELS.minDaily, "minDaily", 0, 24, 0.5),
-    numField(LABELS.maxDaily, "maxDaily", 0, 24, 0.5)));
+    numField(LABELS.maxDaily, "maxDaily", 0, 24, 0.5),
+    numField(LABELS.maxShiftHours, "maxShiftHours", 0, 24, 0.5),
+    numField(LABELS.minBreakHours, "minBreakHours", 0, 24, 0.5)));
 }
 
 function renderTasks() {
@@ -325,7 +585,11 @@ function renderPeople() {
 
 function renderTimeline() {
   const box = $("timeline-section");
-  box.replaceChildren(el("h2", { text: LABELS.timelineTitle }));
+  const auto = el("button", { type: "button", class: "auto-fill", text: "✨ " + LABELS.autoFill, title: LABELS.autoFillHint, disabled: !state.people.length || !state.tasks.length });
+  auto.dataset.action = "auto-fill";
+  const clear = el("button", { type: "button", class: "clear-all", text: "🗑 " + LABELS.clearAll, title: LABELS.clearAllHint });
+  clear.dataset.action = "clear-all";
+  box.replaceChildren(el("div", { class: "section-head" }, el("h2", { text: LABELS.timelineTitle }), el("div", { class: "head-actions" }, clear, auto)));
   if (!state.tasks.length) {
     box.append(el("p", { class: "empty", text: LABELS.noTasksTimeline }));
     return;
@@ -369,7 +633,7 @@ function renderTimeline() {
   }
   box.append(days);
   const dot = (c, l) => el("span", {}, el("span", { class: "dot", style: "background:" + c }), l);
-  box.append(el("div", { class: "legend" }, dot("#22c55e", LABELS.legendOk), dot("#f59e0b", LABELS.legendUnder), dot("#ef4444", LABELS.legendOver)));
+  box.append(el("div", { class: "legend" }, dot("#22c55e", LABELS.legendOk), dot("#ef4444", LABELS.legendUnder), dot("#f59e0b", LABELS.legendOver)));
 }
 
 /** Secondary read-only view: rows = people, columns = slots, cell = assigned task name */
@@ -377,20 +641,43 @@ function renderByPerson() {
   const box = $("byperson-section");
   box.replaceChildren(el("h2", { text: LABELS.byPersonTitle }));
   if (!state.people.length || !state.tasks.length) return;
-  const head = el("tr", {}, el("th", { text: LABELS.peopleTitle }));
-  for (let s = 0; s < totalSlots(); s++) head.append(el("th", { text: slotLabel(s) }));
-  const body = el("tbody");
-  for (const p of state.people) {
-    const row = el("tr", {}, el("th", { text: p.name }));
-    for (let s = 0; s < totalSlots(); s++) {
-      const t = state.tasks.find((x) => getAssigned(x.id, s).includes(p.id));
-      const td = el("td", { text: t ? t.name : "", class: t ? "assigned" : "" });
-      if (t) td.style.background = t.color + "55";
-      row.append(td);
+  const per = slotsPerDay();
+  const days = el("div", { class: "person-days" });
+  for (let d = 0; d < state.settings.days; d++) {
+    const head = el("tr", {}, el("th", { text: LABELS.peopleTitle }));
+    for (let i = 0; i < per; i++) head.append(el("th", { text: slotTime(d * per + i) }));
+    const body = el("tbody");
+    for (const p of state.people) {
+      const row = el("tr", {}, el("th", { text: p.name }));
+      for (let i = 0; i < per; i++) {
+        const s = d * per + i;
+        const t = state.tasks.find((x) => getAssigned(x.id, s).includes(p.id));
+        const td = el("td", { text: t ? t.name : "", class: "pcell" + (t ? " assigned" : ""), title: LABELS.personCellHint });
+        if (t) td.style.background = t.color + "55";
+        td.dataset.person = p.id;
+        td.dataset.slot = s;
+        row.append(td);
+      }
+      body.append(row);
     }
-    body.append(row);
+    days.append(el("div", { class: "day" }, el("h3", { text: LABELS.dayTitle + " " + (d + 1) }),
+      el("div", { class: "table-wrap" }, el("table", { class: "mini" }, el("thead", {}, head), body))));
   }
-  box.append(el("table", { class: "mini" }, el("thead", {}, head), body));
+  box.append(days);
+}
+
+/** Click on a person's slot: cycles empty -> task 1 -> ... -> last task -> empty */
+function cyclePersonSlot(personId, slot) {
+  const idx = state.tasks.findIndex((x) => getAssigned(x.id, slot).includes(personId));
+  for (const t of state.tasks) {
+    const k = key(t.id, slot);
+    if (state.assignments[k]) state.assignments[k] = state.assignments[k].filter((id) => id !== personId);
+  }
+  if (idx + 1 < state.tasks.length) {
+    const t = state.tasks[idx + 1];
+    state.assignments[key(t.id, slot)] = getAssigned(t.id, slot).concat(personId);
+  }
+  commit();
 }
 
 /** Renders the assignment popup content (or hides it). Called after every change. */
@@ -430,12 +717,25 @@ function renderPopup() {
 }
 
 function render() {
+  // Remember scroll positions: re-rendering replaces the DOM and would otherwise reset them
+  const scrollers = () => Array.from(document.querySelectorAll(".panel, .table-wrap"));
+  const saved = scrollers().map((n) => [n.scrollLeft, n.scrollTop]);
+  const winX = window.scrollX, winY = window.scrollY;
+  renderAll();
+  scrollers().forEach((n, i) => { if (saved[i]) { n.scrollLeft = saved[i][0]; n.scrollTop = saved[i][1]; } });
+  window.scrollTo(winX, winY);
+}
+
+function renderAll() {
   // Keep the page's focus when a re-render happens while typing is not needed: inputs commit on 'change'.
   renderSettings();
   renderTasks();
   renderPeople();
   renderTimeline();
   renderByPerson();
+  renderHistory();
+  renderLock();
+  renderMode();
   renderPopup();
 }
 
@@ -445,7 +745,7 @@ function render() {
 function applySettings(prop, rawValue) {
   const next = Object.assign({}, state.settings, { [prop]: Number(rawValue) });
   const valid = next.days >= 1 && next.days <= 14 && next.endHour > next.startHour && next.endHour <= MAX_END
-    && next.startHour >= 0 && next.startHour < 24 && next.endHour - next.startHour <= 24 && next.minDaily >= 0 && next.maxDaily >= next.minDaily
+    && next.startHour >= 0 && next.startHour < 24 && next.endHour - next.startHour <= 24 && next.minDaily >= 0 && next.maxDaily >= next.minDaily && next.maxShiftHours >= 0 && next.minBreakHours >= 0
     && Number.isInteger(((next.endHour - next.startHour) * 60) / next.slotMinutes);
   if (!valid) { alert(LABELS.invalidSettings); render(); return; }
   const timeChanged = ["days", "startHour", "endHour", "slotMinutes"].includes(prop);
@@ -461,6 +761,32 @@ function applySettings(prop, rawValue) {
 let suppressClick = false;
 
 function setupEvents() {
+  // Lock guard (capture phase, registered first): blocks every modification while locked
+  const guard = (e) => {
+    if (!locked || !isMutating(e.target)) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    warnLocked();
+    if (e.type === "change") render();
+  };
+  for (const type of ["click", "change", "submit", "pointerdown"]) document.addEventListener(type, guard, true);
+  $("btn-lock").addEventListener("click", async () => {
+    if (locked && !(await requireCode())) return; // locking never needs the code, unlocking does
+    locked = !locked;
+    renderLock();
+  });
+  $("btn-mode").addEventListener("click", async () => {
+    if (!setupMode && !(await requireCode())) return; // entering setup needs the code, leaving does not
+    setupMode = !setupMode;
+    renderMode();
+  });
+  $("btn-history-clear").addEventListener("click", async () => {
+    if (!confirm(LABELS.confirmHistoryClear) || !(await requireCode())) return;
+    state.history = [];
+    saveState();
+    renderHistory();
+  });
+
   // Settings, task rename / color
   document.addEventListener("change", (e) => {
     const t = e.target;
@@ -499,10 +825,14 @@ function setupEvents() {
     const actionEl = e.target.closest("[data-action]");
     const action = actionEl && actionEl.dataset.action;
     const cell = e.target.closest("td.cell");
+    const pcell = e.target.closest("td.pcell");
+    if (pcell) { cyclePersonSlot(pcell.dataset.person, Number(pcell.dataset.slot)); return; }
 
     if (e.target.closest(".fill-handle")) return;
     if (action === "task-delete" && confirm(LABELS.confirmDeleteTask)) deleteTask(actionEl.dataset.id);
     else if (action === "person-delete" && confirm(LABELS.confirmDeletePerson)) deletePerson(actionEl.dataset.id);
+    else if (action === "auto-fill") autoFill();
+    else if (action === "clear-all" && confirm(LABELS.confirmClearAll)) clearAllAssignments();
     else if (action === "need-plus" && cell) adjustNeed(cell.dataset.task, Number(cell.dataset.slot), 1);
     else if (action === "need-minus" && cell) adjustNeed(cell.dataset.task, Number(cell.dataset.slot), -1);
     else if (action === "toggle-person" && openPopup) toggleAssignment(openPopup.taskId, openPopup.slot, actionEl.dataset.person);
@@ -513,34 +843,67 @@ function setupEvents() {
 
   // Drag the fill handle of a cell down to copy its team onto the slots below
   let fill = null; // { taskId, from, to }
-  const clearFill = () => document.querySelectorAll(".fill-target").forEach((n) => n.classList.remove("fill-target"));
+  const clearFill = () => {
+    document.querySelectorAll(".fill-ghost").forEach((n) => n.remove());
+    document.querySelectorAll(".fill-target, .fill-source, .fill-hit").forEach((n) => n.classList.remove("fill-target", "fill-source", "fill-hit"));
+    document.body.classList.remove("filling");
+    if (tip) { tip.remove(); tip = null; }
+  };
   document.addEventListener("pointerdown", (e) => {
     const h = e.target.closest(".fill-handle");
     const cell = h && h.closest("td.cell");
     if (!cell) return;
     e.preventDefault();
     fill = { taskId: cell.dataset.task, from: Number(cell.dataset.slot), to: Number(cell.dataset.slot) };
+    cell.classList.add("fill-source");
   });
+  const cellAt = (taskId, slot) => document.querySelector('td.cell[data-task="' + taskId + '"][data-slot="' + slot + '"]');
+  let tip = null;
   document.addEventListener("pointermove", (e) => {
     if (!fill) return;
-    const c = document.elementFromPoint(e.clientX, e.clientY);
-    const cell = c && c.closest("td.cell");
-    if (!cell || cell.dataset.task !== fill.taskId) return;
-    const s = Number(cell.dataset.slot);
-    if (dayOf(s) !== dayOf(fill.from)) return;
-    fill.to = Math.max(s, fill.from);
-    clearFill();
-    for (let k = fill.from + 1; k <= fill.to; k++) {
-      const n = document.querySelector('td.cell[data-task="' + fill.taskId + '"][data-slot="' + k + '"]');
-      if (n) n.classList.add("fill-target");
+    // Follow the pointer vertically within the source column, whichever column it is over
+    const first = cellAt(fill.taskId, fill.from);
+    if (!first) return;
+    let to = fill.from;
+    for (let k = fill.from + 1; dayOf(k) === dayOf(fill.from); k++) {
+      const n = cellAt(fill.taskId, k);
+      if (!n) break;
+      if (n.getBoundingClientRect().top <= e.clientY) to = k; else break;
     }
+    fill.to = to;
+    clearFill();
+    document.body.classList.add("filling");
+    const src = first.querySelector(".cell-inner");
+    for (let k = fill.from; k <= fill.to; k++) {
+      const n = cellAt(fill.taskId, k);
+      if (!n) continue;
+      n.classList.add(k === fill.from ? "fill-source" : "fill-target");
+      const lbl = n.parentElement.querySelector(".time-label");
+      if (lbl) lbl.classList.add("fill-hit");
+      if (k > fill.from && src) {
+        const ghost = el("div", { class: "fill-ghost" });
+        ghost.append(src.cloneNode(true));
+        n.append(ghost);
+      }
+    }
+    if (!tip) { tip = el("div", { class: "fill-tip" }); document.body.append(tip); }
+    tip.textContent = slotTime(fill.from) + " → " + formatMinutes(state.settings.startHour * 60 + ((fill.to % slotsPerDay()) + 1) * state.settings.slotMinutes) + " (" + (fill.to - fill.from) + ")";
+    tip.style.left = e.clientX + 16 + "px";
+    tip.style.top = e.clientY + 12 + "px";
   });
   document.addEventListener("pointerup", () => {
     if (!fill) return;
     const f = fill;
     fill = null;
     clearFill();
-    if (f.to > f.from) { suppressClick = true; copySlot(f.taskId, f.from, f.to); }
+    if (f.to > f.from) {
+      suppressClick = true;
+      copySlot(f.taskId, f.from, f.to);
+      for (let k = f.from + 1; k <= f.to; k++) {
+        const n = document.querySelector('td.cell[data-task="' + f.taskId + '"][data-slot="' + k + '"]');
+        if (n) n.classList.add("fill-done");
+      }
+    }
   });
   document.addEventListener("click", (e) => {
     if (suppressClick) { suppressClick = false; e.stopImmediatePropagation(); }
@@ -552,7 +915,8 @@ function setupEvents() {
   });
 
   // Toolbar: export / import / reset
-  $("btn-export").addEventListener("click", () => {
+  $("btn-export").addEventListener("click", async () => {
+    if (!(await requireCode())) return;
     const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
     const a = el("a", { href: URL.createObjectURL(blob), download: "team-planner.json" });
     a.click();
@@ -567,7 +931,7 @@ function setupEvents() {
       try {
         const parsed = JSON.parse(reader.result);
         if (!isValidState(parsed)) throw new Error("invalid");
-        state = Object.assign(defaultState(), parsed);
+        state = Object.assign(defaultState(), parsed, { settings: Object.assign(defaultState().settings, parsed.settings) });
         openPopup = null;
         commit();
       } catch (err) { alert(LABELS.importError); }
@@ -584,9 +948,24 @@ function setupEvents() {
  * 8. Start
  * -------------------------------------------------------------------------- */
 document.title = LABELS.appTitle;
+{
+  // The header is fixed and may wrap on narrow screens: keep the page content just below it
+  const hdr = document.querySelector("header");
+  const fit = () => document.documentElement.style.setProperty("--header-h", hdr.offsetHeight + "px");
+  fit();
+  window.addEventListener("resize", fit);
+  if (window.ResizeObserver) new ResizeObserver(fit).observe(hdr);
+}
 $("app-title").textContent = LABELS.appTitle;
 $("btn-export").textContent = LABELS.export;
+$("btn-history-clear").textContent = LABELS.historyClear;
+$("btn-auto-fill").textContent = "✨ " + LABELS.autoFill;
+$("btn-auto-fill").title = LABELS.autoFillHint;
+$("btn-clear-all").textContent = "🗑 " + LABELS.clearAll;
+$("btn-clear-all").title = LABELS.clearAllHint;
 $("btn-import").textContent = LABELS.import;
+$("timeline-summary").textContent = LABELS.timelineTitle;
+$("history-summary").textContent = LABELS.historyTitle;
 $("btn-reset").textContent = LABELS.resetAll;
 setupEvents();
 render();
