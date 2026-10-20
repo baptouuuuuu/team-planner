@@ -558,7 +558,7 @@ function setupEvents() {
       }
     }
     if (!tip) { tip = el("div", { class: "fill-tip" }); document.body.append(tip); }
-    tip.textContent = slotTime(fill.from) + " → " + slotTime(fill.to + 1) + " (" + (fill.to - fill.from) + ")";
+    tip.textContent = slotTime(fill.from) + " → " + formatMinutes(state.settings.startHour * 60 + ((fill.to % slotsPerDay()) + 1) * state.settings.slotMinutes) + " (" + (fill.to - fill.from) + ")";
     tip.style.left = e.clientX + 16 + "px";
     tip.style.top = e.clientY + 12 + "px";
   });
