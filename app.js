@@ -74,7 +74,8 @@ const LABELS = {
   popupNoPeople: "Ajoutez d'abord des personnes.",
   popupBusyOn: "déjà sur",
   fillHandle: "Étirer vers le bas pour copier l'équipe et le besoin",
-  byPersonTitle: "Vue par personne (lecture seule)",
+  byPersonTitle: "Vue par personne",
+  personCellHint: "Cliquer pour changer de tâche (jusqu'à vide, puis retour au début)",
 };
 
 /* --------------------------------------------------------------------------
@@ -460,20 +461,43 @@ function renderByPerson() {
   const box = $("byperson-section");
   box.replaceChildren(el("h2", { text: LABELS.byPersonTitle }));
   if (!state.people.length || !state.tasks.length) return;
-  const head = el("tr", {}, el("th", { text: LABELS.peopleTitle }));
-  for (let s = 0; s < totalSlots(); s++) head.append(el("th", { text: slotLabel(s) }));
-  const body = el("tbody");
-  for (const p of state.people) {
-    const row = el("tr", {}, el("th", { text: p.name }));
-    for (let s = 0; s < totalSlots(); s++) {
-      const t = state.tasks.find((x) => getAssigned(x.id, s).includes(p.id));
-      const td = el("td", { text: t ? t.name : "", class: t ? "assigned" : "" });
-      if (t) td.style.background = t.color + "55";
-      row.append(td);
+  const per = slotsPerDay();
+  const days = el("div", { class: "person-days" });
+  for (let d = 0; d < state.settings.days; d++) {
+    const head = el("tr", {}, el("th", { text: LABELS.peopleTitle }));
+    for (let i = 0; i < per; i++) head.append(el("th", { text: slotTime(d * per + i) }));
+    const body = el("tbody");
+    for (const p of state.people) {
+      const row = el("tr", {}, el("th", { text: p.name }));
+      for (let i = 0; i < per; i++) {
+        const s = d * per + i;
+        const t = state.tasks.find((x) => getAssigned(x.id, s).includes(p.id));
+        const td = el("td", { text: t ? t.name : "", class: "pcell" + (t ? " assigned" : ""), title: LABELS.personCellHint });
+        if (t) td.style.background = t.color + "55";
+        td.dataset.person = p.id;
+        td.dataset.slot = s;
+        row.append(td);
+      }
+      body.append(row);
     }
-    body.append(row);
+    days.append(el("div", { class: "day" }, el("h3", { text: LABELS.dayTitle + " " + (d + 1) }),
+      el("div", { class: "table-wrap" }, el("table", { class: "mini" }, el("thead", {}, head), body))));
   }
-  box.append(el("table", { class: "mini" }, el("thead", {}, head), body));
+  box.append(days);
+}
+
+/** Click on a person's slot: cycles empty -> task 1 -> ... -> last task -> empty */
+function cyclePersonSlot(personId, slot) {
+  const idx = state.tasks.findIndex((x) => getAssigned(x.id, slot).includes(personId));
+  for (const t of state.tasks) {
+    const k = key(t.id, slot);
+    if (state.assignments[k]) state.assignments[k] = state.assignments[k].filter((id) => id !== personId);
+  }
+  if (idx + 1 < state.tasks.length) {
+    const t = state.tasks[idx + 1];
+    state.assignments[key(t.id, slot)] = getAssigned(t.id, slot).concat(personId);
+  }
+  commit();
 }
 
 /** Renders the assignment popup content (or hides it). Called after every change. */
@@ -582,6 +606,8 @@ function setupEvents() {
     const actionEl = e.target.closest("[data-action]");
     const action = actionEl && actionEl.dataset.action;
     const cell = e.target.closest("td.cell");
+    const pcell = e.target.closest("td.pcell");
+    if (pcell) { cyclePersonSlot(pcell.dataset.person, Number(pcell.dataset.slot)); return; }
 
     if (e.target.closest(".fill-handle")) return;
     if (action === "task-delete" && confirm(LABELS.confirmDeleteTask)) deleteTask(actionEl.dataset.id);
