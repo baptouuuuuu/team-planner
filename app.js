@@ -19,6 +19,13 @@ const LABELS = {
   historyTitle: "Historique des modifications",
   historyEmpty: "Aucune modification pour le moment.",
   historyClear: "Vider l'historique",
+  codeCreate: "Créez un code de sécurité (4 caractères minimum). Il sera demandé pour déverrouiller, exporter et vider l'historique.",
+  codeConfirm: "Confirmez le code :",
+  codeAsk: "Entrez le code de sécurité :",
+  codeWrong: "Code incorrect.",
+  codeMismatch: "Les codes ne correspondent pas.",
+  codeTooShort: "Code trop court (4 caractères minimum).",
+  confirmHistoryClear: "Vider définitivement l'historique ?",
   historyMany: "modifications",
   autoFill: "Remplir automatiquement",
   clearAll: "Tout supprimer",
@@ -308,6 +315,45 @@ function deletePerson(personId) {
   commit();
 }
 
+/* --- Security code: stored as a salted hash (separately from the planner data) --- */
+const CODE_KEY = "team-planner-code-v1";
+
+async function hashCode(code) {
+  const text = "team-planner:" + code;
+  if (window.crypto && crypto.subtle) {
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+    return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57; // fallback for non-secure contexts
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 2654435761);
+    h2 = Math.imul(h2 ^ c, 1597334677);
+  }
+  return "f" + (h1 >>> 0).toString(16) + (h2 >>> 0).toString(16);
+}
+
+/** Asks for the security code (creating it the first time). Resolves to true when granted. */
+async function requireCode() {
+  let stored = null;
+  try { stored = localStorage.getItem(CODE_KEY); } catch (e) { /* storage unavailable */ }
+  if (!stored) {
+    const c1 = prompt(LABELS.codeCreate);
+    if (c1 === null) return false;
+    if (c1.length < 4) { alert(LABELS.codeTooShort); return false; }
+    const c2 = prompt(LABELS.codeConfirm);
+    if (c2 === null) return false;
+    if (c1 !== c2) { alert(LABELS.codeMismatch); return false; }
+    try { localStorage.setItem(CODE_KEY, await hashCode(c1)); } catch (e) { /* ignore */ }
+    return true;
+  }
+  const c = prompt(LABELS.codeAsk);
+  if (c === null) return false;
+  if ((await hashCode(c)) === stored) return true;
+  alert(LABELS.codeWrong);
+  return false;
+}
+
 /* --- Edit lock: the planner starts locked so nothing is changed by accident --- */
 let locked = true;
 
@@ -317,7 +363,7 @@ function isMutating(target) {
   if (target.closest("td.cell, td.pcell, .fill-handle, #btn-reset, #btn-import")) return true;
   if (target.closest("#task-form, #person-form")) return true;
   const a = target.closest("[data-action]");
-  if (a && !["popup-close", "lock-toggle", "history-clear"].includes(a.dataset.action)) return true;
+  if (a && !["popup-close", "lock-toggle"].includes(a.dataset.action)) return true;
   if (target.closest("[data-setting]")) return true;
   return false;
 }
@@ -404,9 +450,7 @@ function recordHistory() {
 
 function renderHistory() {
   const box = $("history-section");
-  const clear = el("button", { type: "button", text: LABELS.historyClear });
-  clear.dataset.action = "history-clear";
-  box.replaceChildren(el("div", { class: "section-head" }, el("span", { class: "empty", text: state.history.length + " " + LABELS.historyMany }), clear));
+  box.replaceChildren(el("div", { class: "section-head" }, el("span", { class: "empty", text: state.history.length + " " + LABELS.historyMany })));
   if (!state.history.length) { box.append(el("p", { class: "empty", text: LABELS.historyEmpty })); return; }
   const list = el("ul", { class: "history" });
   for (const h of state.history) {
@@ -708,7 +752,17 @@ function setupEvents() {
     if (e.type === "change") render();
   };
   for (const type of ["click", "change", "submit", "pointerdown"]) document.addEventListener(type, guard, true);
-  $("btn-lock").addEventListener("click", () => { locked = !locked; renderLock(); });
+  $("btn-lock").addEventListener("click", async () => {
+    if (locked && !(await requireCode())) return; // locking never needs the code, unlocking does
+    locked = !locked;
+    renderLock();
+  });
+  $("btn-history-clear").addEventListener("click", async () => {
+    if (!confirm(LABELS.confirmHistoryClear) || !(await requireCode())) return;
+    state.history = [];
+    saveState();
+    renderHistory();
+  });
 
   // Settings, task rename / color
   document.addEventListener("change", (e) => {
@@ -754,7 +808,6 @@ function setupEvents() {
     if (e.target.closest(".fill-handle")) return;
     if (action === "task-delete" && confirm(LABELS.confirmDeleteTask)) deleteTask(actionEl.dataset.id);
     else if (action === "person-delete" && confirm(LABELS.confirmDeletePerson)) deletePerson(actionEl.dataset.id);
-    else if (action === "history-clear") { state.history = []; saveState(); renderHistory(); }
     else if (action === "auto-fill") autoFill();
     else if (action === "clear-all" && confirm(LABELS.confirmClearAll)) clearAllAssignments();
     else if (action === "need-plus" && cell) adjustNeed(cell.dataset.task, Number(cell.dataset.slot), 1);
@@ -839,7 +892,8 @@ function setupEvents() {
   });
 
   // Toolbar: export / import / reset
-  $("btn-export").addEventListener("click", () => {
+  $("btn-export").addEventListener("click", async () => {
+    if (!(await requireCode())) return;
     const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
     const a = el("a", { href: URL.createObjectURL(blob), download: "team-planner.json" });
     a.click();
@@ -873,6 +927,7 @@ function setupEvents() {
 document.title = LABELS.appTitle;
 $("app-title").textContent = LABELS.appTitle;
 $("btn-export").textContent = LABELS.export;
+$("btn-history-clear").textContent = LABELS.historyClear;
 $("btn-import").textContent = LABELS.import;
 $("timeline-summary").textContent = LABELS.timelineTitle;
 $("history-summary").textContent = LABELS.historyTitle;

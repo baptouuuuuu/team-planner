@@ -4,7 +4,7 @@
 }
 * { box-sizing: border-box; }
 body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 20px; background: var(--panel); border-bottom: 1px solid var(--border); flex-wrap: wrap; gap: 8px; }
+header { position: sticky; top: 0; z-index: 30; display: flex; justify-content: space-between; align-items: center; padding: 10px 20px; background: var(--panel); border-bottom: 1px solid var(--border); flex-wrap: wrap; gap: 8px; }
 h1 { font-size: 1.2rem; margin: 0; letter-spacing: .02em; }
 h2 { font-size: 1rem; margin: 0 0 10px; }
 h3 { font-size: .85rem; margin: 0 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
