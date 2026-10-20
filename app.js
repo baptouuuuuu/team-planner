@@ -367,7 +367,7 @@ function renderTimeline() {
   }
   box.append(days);
   const dot = (c, l) => el("span", {}, el("span", { class: "dot", style: "background:" + c }), l);
-  box.append(el("div", { class: "legend" }, dot("#22c55e", LABELS.legendOk), dot("#f59e0b", LABELS.legendUnder), dot("#ef4444", LABELS.legendOver)));
+  box.append(el("div", { class: "legend" }, dot("#22c55e", LABELS.legendOk), dot("#ef4444", LABELS.legendUnder), dot("#f59e0b", LABELS.legendOver)));
 }
 
 /** Secondary read-only view: rows = people, columns = slots, cell = assigned task name */
