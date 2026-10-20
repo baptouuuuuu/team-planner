@@ -926,6 +926,14 @@ function setupEvents() {
  * 8. Start
  * -------------------------------------------------------------------------- */
 document.title = LABELS.appTitle;
+{
+  // The header is fixed and may wrap on narrow screens: keep the page content just below it
+  const hdr = document.querySelector("header");
+  const fit = () => document.documentElement.style.setProperty("--header-h", hdr.offsetHeight + "px");
+  fit();
+  window.addEventListener("resize", fit);
+  if (window.ResizeObserver) new ResizeObserver(fit).observe(hdr);
+}
 $("app-title").textContent = LABELS.appTitle;
 $("btn-export").textContent = LABELS.export;
 $("btn-history-clear").textContent = LABELS.historyClear;
