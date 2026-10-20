@@ -12,6 +12,12 @@ const LABELS = {
   import: "Importer (JSON)",
   resetAll: "Tout réinitialiser",
   autoFill: "Remplir automatiquement",
+  clearAll: "Tout supprimer",
+  clearAllHint: "Supprime toutes les affectations du chronogramme",
+  confirmClearAll: "Supprimer toutes les affectations ? Les tâches, personnes et besoins sont conservés.",
+  autoFillDone: "Remplissage terminé.",
+  autoFillUnfilled: "postes non pourvus (règles ou personnes insuffisantes)",
+  autoFillBelowMin: "personne(s) sous le minimum d'heures par jour",
   autoFillHint: "Complète les postes manquants sans modifier les affectations existantes",
   confirmResetAll: "Supprimer toutes les données ?",
   importError: "Fichier invalide : import impossible.",
@@ -27,6 +33,8 @@ const LABELS = {
   minutes60: "1 heure",
   minDaily: "Heures min. par jour",
   maxDaily: "Heures max. par jour",
+  maxShiftHours: "Durée max. d'un créneau (h, 0 = illimité)",
+  minBreakHours: "Pause min. entre créneaux (h)",
   invalidSettings: "Paramètres invalides : la fin doit suivre le début et la durée doit être un multiple du créneau.",
   confirmGranularity: "Changer la période réinitialisera les besoins et les affectations. Continuer ?",
   tasksTitle: "Tâches",
@@ -79,7 +87,7 @@ const PALETTE = ["#2563eb", "#db2777", "#059669", "#d97706", "#7c3aed", "#0891b2
 
 function defaultState() {
   return {
-    settings: { days: 1, startHour: 8, endHour: 18, slotMinutes: 60, minDaily: 4, maxDaily: 8 },
+    settings: { days: 1, startHour: 8, endHour: 18, slotMinutes: 60, minDaily: 4, maxDaily: 8, maxShiftHours: 2, minBreakHours: 2 },
     tasks: [],
     people: [],
     needs: {},       // "taskId|slot" -> required count (missing = DEFAULT_NEED)
@@ -100,7 +108,7 @@ function isValidState(s) {
 function loadState() {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (isValidState(parsed)) return Object.assign(defaultState(), parsed);
+    if (isValidState(parsed)) return Object.assign(defaultState(), parsed, { settings: Object.assign(defaultState().settings, parsed.settings) });
   } catch (e) { /* ignore corrupted storage */ }
   return defaultState();
 }
@@ -207,29 +215,70 @@ function copySlot(taskId, fromSlot, toSlot) {
   commit();
 }
 
-/** Fills missing positions: keeps existing assignments, favours continuity then the least-loaded people (respecting max daily hours) */
+/**
+ * Fills missing positions without touching existing assignments. Rules: one task per person and slot,
+ * max shift length, min break between shifts (same day), max daily hours; people furthest below
+ * the daily minimum are served first, and continuing the same task is preferred.
+ */
 function autoFill() {
-  const hours = state.people.map((p) => ({ id: p.id, h: dailyHours(p.id) }));
-  const load = (id) => hours.find((x) => x.id === id).h;
+  const cfg = state.settings;
+  const per = slotsPerDay();
+  const maxRun = cfg.maxShiftHours > 0 ? Math.floor((cfg.maxShiftHours * 60) / cfg.slotMinutes) : Infinity;
+  const minGap = Math.ceil(((cfg.minBreakHours || 0) * 60) / cfg.slotMinutes);
+  const occ = {};
+  const hours = {};
+  for (const p of state.people) {
+    occ[p.id] = new Array(totalSlots()).fill(false);
+    hours[p.id] = new Array(cfg.days).fill(0);
+  }
+  for (const t of state.tasks) {
+    for (let s = 0; s < totalSlots(); s++) {
+      for (const id of getAssigned(t.id, s)) if (occ[id]) { occ[id][s] = true; hours[id][dayOf(s)] += slotHours(); }
+    }
+  }
+  /** Would working slot s keep the person's shifts within the rules? Only the shift containing s and its neighbours are checked. */
+  const allowed = (id, s) => {
+    const o = occ[id];
+    const lo = dayOf(s) * per, hi = lo + per - 1;
+    let a = s, b = s;
+    while (a - 1 >= lo && o[a - 1]) a--;
+    while (b + 1 <= hi && o[b + 1]) b++;
+    if (b - a + 1 > maxRun) return false;
+    let p = a - 1;
+    while (p >= lo && !o[p]) p--;
+    if (p >= lo && a - p - 1 < minGap) return false;
+    let n = b + 1;
+    while (n <= hi && !o[n]) n++;
+    if (n <= hi && n - b - 1 < minGap) return false;
+    return true;
+  };
+  let unfilled = 0;
   for (let s = 0; s < totalSlots(); s++) {
     const d = dayOf(s);
     for (const t of state.tasks) {
       const list = getAssigned(t.id, s).slice();
-      let missing = getNeed(t.id, s) - list.length;
+      const missing = getNeed(t.id, s) - list.length;
       if (missing <= 0) continue;
-      const prev = s > 0 && dayOf(s - 1) === d ? getAssigned(t.id, s - 1) : [];
+      const prev = s % per > 0 ? getAssigned(t.id, s - 1) : [];
       const candidates = state.people
-        .filter((p) => !list.includes(p.id) && !busyTask(p.id, s, t.id) && load(p.id)[d] + slotHours() <= state.settings.maxDaily)
-        .sort((a, b) => (prev.includes(b.id) - prev.includes(a.id)) || (load(a.id)[d] - load(b.id)[d]));
-      for (const p of candidates) {
-        if (missing <= 0) break;
-        list.push(p.id);
-        load(p.id)[d] += slotHours();
-        missing--;
-      }
+        .filter((p) => !list.includes(p.id) && !occ[p.id][s] && hours[p.id][d] + slotHours() <= cfg.maxDaily && allowed(p.id, s))
+        .sort((x, y) => (prev.includes(y.id) - prev.includes(x.id)) || (hours[x.id][d] - hours[y.id][d]));
+      const picked = candidates.slice(0, missing);
+      for (const p of picked) { list.push(p.id); occ[p.id][s] = true; hours[p.id][d] += slotHours(); }
+      unfilled += missing - picked.length;
       state.assignments[key(t.id, s)] = list;
     }
   }
+  const belowMin = state.people.filter((p) => hours[p.id].some((h) => h < cfg.minDaily)).length;
+  commit();
+  const notes = [];
+  if (unfilled) notes.push(unfilled + " " + LABELS.autoFillUnfilled);
+  if (belowMin) notes.push(belowMin + " " + LABELS.autoFillBelowMin);
+  alert(LABELS.autoFillDone + (notes.length ? "\n- " + notes.join("\n- ") : ""));
+}
+
+function clearAllAssignments() {
+  state.assignments = {};
   commit();
 }
 
@@ -300,7 +349,9 @@ function renderSettings() {
     hourSelect("endHour", 0.5, MAX_END),
     el("label", { text: LABELS.slotLength }, select),
     numField(LABELS.minDaily, "minDaily", 0, 24, 0.5),
-    numField(LABELS.maxDaily, "maxDaily", 0, 24, 0.5)));
+    numField(LABELS.maxDaily, "maxDaily", 0, 24, 0.5),
+    numField(LABELS.maxShiftHours, "maxShiftHours", 0, 24, 0.5),
+    numField(LABELS.minBreakHours, "minBreakHours", 0, 24, 0.5)));
 }
 
 function renderTasks() {
@@ -355,7 +406,9 @@ function renderTimeline() {
   const box = $("timeline-section");
   const auto = el("button", { type: "button", class: "auto-fill", text: "✨ " + LABELS.autoFill, title: LABELS.autoFillHint, disabled: !state.people.length || !state.tasks.length });
   auto.dataset.action = "auto-fill";
-  box.replaceChildren(el("div", { class: "section-head" }, el("h2", { text: LABELS.timelineTitle }), auto));
+  const clear = el("button", { type: "button", class: "clear-all", text: "🗑 " + LABELS.clearAll, title: LABELS.clearAllHint });
+  clear.dataset.action = "clear-all";
+  box.replaceChildren(el("div", { class: "section-head" }, el("h2", { text: LABELS.timelineTitle }), el("div", { class: "head-actions" }, clear, auto)));
   if (!state.tasks.length) {
     box.append(el("p", { class: "empty", text: LABELS.noTasksTimeline }));
     return;
@@ -475,7 +528,7 @@ function render() {
 function applySettings(prop, rawValue) {
   const next = Object.assign({}, state.settings, { [prop]: Number(rawValue) });
   const valid = next.days >= 1 && next.days <= 14 && next.endHour > next.startHour && next.endHour <= MAX_END
-    && next.startHour >= 0 && next.startHour < 24 && next.endHour - next.startHour <= 24 && next.minDaily >= 0 && next.maxDaily >= next.minDaily
+    && next.startHour >= 0 && next.startHour < 24 && next.endHour - next.startHour <= 24 && next.minDaily >= 0 && next.maxDaily >= next.minDaily && next.maxShiftHours >= 0 && next.minBreakHours >= 0
     && Number.isInteger(((next.endHour - next.startHour) * 60) / next.slotMinutes);
   if (!valid) { alert(LABELS.invalidSettings); render(); return; }
   const timeChanged = ["days", "startHour", "endHour", "slotMinutes"].includes(prop);
@@ -534,6 +587,7 @@ function setupEvents() {
     if (action === "task-delete" && confirm(LABELS.confirmDeleteTask)) deleteTask(actionEl.dataset.id);
     else if (action === "person-delete" && confirm(LABELS.confirmDeletePerson)) deletePerson(actionEl.dataset.id);
     else if (action === "auto-fill") autoFill();
+    else if (action === "clear-all" && confirm(LABELS.confirmClearAll)) clearAllAssignments();
     else if (action === "need-plus" && cell) adjustNeed(cell.dataset.task, Number(cell.dataset.slot), 1);
     else if (action === "need-minus" && cell) adjustNeed(cell.dataset.task, Number(cell.dataset.slot), -1);
     else if (action === "toggle-person" && openPopup) toggleAssignment(openPopup.taskId, openPopup.slot, actionEl.dataset.person);
@@ -631,7 +685,7 @@ function setupEvents() {
       try {
         const parsed = JSON.parse(reader.result);
         if (!isValidState(parsed)) throw new Error("invalid");
-        state = Object.assign(defaultState(), parsed);
+        state = Object.assign(defaultState(), parsed, { settings: Object.assign(defaultState().settings, parsed.settings) });
         openPopup = null;
         commit();
       } catch (err) { alert(LABELS.importError); }
