@@ -40,7 +40,7 @@ table.timeline { border-collapse: separate; border-spacing: 3px 3px; }
 .timeline .task-head { width: 140px; min-width: 140px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; padding: 6px 8px; font-size: .8rem; font-weight: 600; background: var(--panel2); border-top: 3px solid; border-radius: 8px 8px 0 0; }
 .timeline .time-label { font-size: .7rem; font-weight: 500; color: var(--text); text-align: right; padding-right: 8px; white-space: nowrap; vertical-align: top; }
 .timeline .time-label.minor { color: var(--muted); }
-.cell { position: relative; height: 104px; width: 140px; min-width: 140px; max-width: 140px; overflow: hidden; padding: 6px 8px 22px; cursor: pointer; background: var(--panel2);  user-select: none; vertical-align: top; }
+.cell { position: relative; height: 104px; width: 140px; min-width: 140px; max-width: 140px; padding: 6px 8px 22px; cursor: pointer; background: var(--panel2);  user-select: none; vertical-align: top; }
 .cell { border: 1px solid var(--border); border-radius: 12px; }
 .cell .fill-handle { position: absolute; left: 50%; bottom: 3px; transform: translateX(-50%); width: 56px; height: 16px; background: var(--accent); color: #fff; border-radius: 8px; cursor: ns-resize; display: flex; align-items: center; justify-content: center; font-size: .6rem; line-height: 1; letter-spacing: 1px; touch-action: none; z-index: 2; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
 .cell .fill-handle::before { content: '▼ ▼ ▼'; }
@@ -60,10 +60,10 @@ body.filling, body.filling * { cursor: ns-resize !important; user-select: none; 
 .cell.over { background: linear-gradient(160deg, rgba(245,158,11,.3), rgba(245,158,11,.1)); border-left-color: var(--low); }
 .cell.zero { background: transparent; border-left-color: var(--border); }
 .cell { border-left-width: 3px; }
-.cell .cell-inner { display: flex; flex-direction: column; align-items: center; gap: 5px; height: 100%; }
+.cell .cell-inner { display: flex; flex-direction: column; align-items: center; gap: 5px; min-height: 100%; }
 .cell .count { font-weight: 700; font-size: .68rem; letter-spacing: .04em; padding: 1px 10px; border-radius: 999px; background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.15); flex: none; }
 .cell .count { font-weight: 700; font-size: .7rem; padding: 1px 7px; border-radius: 999px; background: rgba(255,255,255,.1); flex: none; }
-.cell .chips { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; align-content: center; gap: 4px; flex: 1; min-height: 0; min-width: 0; width: 100%; overflow: hidden; text-align: center; }
+.cell .chips { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; align-content: center; gap: 4px; flex: 1; min-height: 0; min-width: 0; width: 100%; text-align: center; }
 .cell .chip { font-size: .68rem; font-weight: 500; line-height: 1.5; padding: 0 9px; border-radius: 999px; background: linear-gradient(135deg, rgba(255,255,255,.22), rgba(255,255,255,.08)); border: 1px solid rgba(255,255,255,.18); backdrop-filter: blur(2px); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; }
 .cell .ctrls { position: absolute; top: 5px; right: 6px; display: inline-flex; flex: none; background: rgba(0,0,0,.35); border-radius: 999px; padding: 1px; gap: 1px; opacity: .35; transition: opacity .15s; }
 .cell:hover .ctrls, .cell:focus-within .ctrls { opacity: 1; }
