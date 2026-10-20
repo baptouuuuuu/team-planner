@@ -99,3 +99,6 @@ body.filling, body.filling * { cursor: ns-resize !important; user-select: none; 
 .person-days { display: flex; flex-direction: column; gap: 16px; }
 .mini td.pcell { cursor: pointer; min-width: 64px; user-select: none; }
 .mini td.pcell:hover { filter: brightness(1.3); outline: 1px solid var(--accent); }
+.mini { border-collapse: separate; border-spacing: 0; }
+.mini th:first-child { position: sticky; left: 0; z-index: 3; background: var(--panel2); text-align: left; min-width: 90px; box-shadow: 2px 0 4px rgba(0,0,0,.35); }
+.mini { --x: 0; }

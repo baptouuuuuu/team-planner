@@ -537,6 +537,16 @@ function renderPopup() {
 }
 
 function render() {
+  // Remember scroll positions: re-rendering replaces the DOM and would otherwise reset them
+  const scrollers = () => Array.from(document.querySelectorAll(".panel, .table-wrap"));
+  const saved = scrollers().map((n) => [n.scrollLeft, n.scrollTop]);
+  const winX = window.scrollX, winY = window.scrollY;
+  renderAll();
+  scrollers().forEach((n, i) => { if (saved[i]) { n.scrollLeft = saved[i][0]; n.scrollTop = saved[i][1]; } });
+  window.scrollTo(winX, winY);
+}
+
+function renderAll() {
   // Keep the page's focus when a re-render happens while typing is not needed: inputs commit on 'change'.
   renderSettings();
   renderTasks();
