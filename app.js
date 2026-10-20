@@ -16,13 +16,16 @@ const LABELS = {
   settingsTitle: "Période",
   days: "Nombre de jours",
   startHour: "Heure de début",
-  endHour: "Heure de fin",
+  endHour: "Heure de fin (+1 = lendemain)",
+  nextDay: "+1",
+  defaultNeed: "Personnes par défaut",
+  dayTitle: "Jour",
   slotLength: "Durée d'un créneau",
   minutes30: "30 minutes",
   minutes60: "1 heure",
   minDaily: "Heures min. par jour",
   maxDaily: "Heures max. par jour",
-  invalidSettings: "Paramètres invalides : l'heure de fin doit suivre l'heure de début.",
+  invalidSettings: "Paramètres invalides : la fin doit suivre le début et la durée doit être un multiple du créneau.",
   confirmGranularity: "Changer la période réinitialisera les besoins et les affectations. Continuer ?",
   tasksTitle: "Tâches",
   taskPlaceholder: "Nom de la tâche",
@@ -68,6 +71,7 @@ const LABELS = {
  * -------------------------------------------------------------------------- */
 const STORAGE_KEY = "team-planner-data-v1";
 const DEFAULT_NEED = 1;
+const MAX_END = 48; // end hour may reach 24h after midnight of the next day
 const PALETTE = ["#2563eb", "#db2777", "#059669", "#d97706", "#7c3aed", "#0891b2", "#65a30d", "#dc2626"];
 
 function defaultState() {
@@ -109,19 +113,26 @@ function newId(prefix) { return prefix + state.nextId++; }
  * 3. Helpers: time slots, needs, assignments, hours
  * -------------------------------------------------------------------------- */
 const key = (taskId, slot) => taskId + "|" + slot;
-const slotsPerDay = () => ((state.settings.endHour - state.settings.startHour) * 60) / state.settings.slotMinutes;
+const slotsPerDay = () => Math.round(((state.settings.endHour - state.settings.startHour) * 60) / state.settings.slotMinutes);
 const totalSlots = () => slotsPerDay() * state.settings.days;
 const dayOf = (slot) => Math.floor(slot / slotsPerDay());
 const slotHours = () => state.settings.slotMinutes / 60;
 const getTask = (id) => state.tasks.find((t) => t.id === id);
 const getPerson = (id) => state.people.find((p) => p.id === id);
-const getNeed = (taskId, slot) => (key(taskId, slot) in state.needs ? state.needs[key(taskId, slot)] : DEFAULT_NEED);
+const taskDefaultNeed = (taskId) => { const t = getTask(taskId); return t && Number.isInteger(t.defaultNeed) ? t.defaultNeed : DEFAULT_NEED; };
+const getNeed = (taskId, slot) => (key(taskId, slot) in state.needs ? state.needs[key(taskId, slot)] : taskDefaultNeed(taskId));
 const getAssigned = (taskId, slot) => state.assignments[key(taskId, slot)] || [];
 
 const pad = (n) => String(n).padStart(2, "0");
+/** Formats minutes since the work day's midnight; past 24h shows "+1" (next calendar day) */
+function formatMinutes(minutes) {
+  minutes = Math.round(minutes);
+  const m = minutes % 1440;
+  return pad(Math.floor(m / 60)) + ":" + pad(m % 60) + (minutes >= 1440 ? " " + LABELS.nextDay : "");
+}
+const formatHour = (h) => formatMinutes(h * 60);
 function slotTime(slot) {
-  const minutes = state.settings.startHour * 60 + (slot % slotsPerDay()) * state.settings.slotMinutes;
-  return pad(Math.floor(minutes / 60)) + ":" + pad(minutes % 60);
+  return formatMinutes(state.settings.startHour * 60 + (slot % slotsPerDay()) * state.settings.slotMinutes);
 }
 const slotLabel = (slot) => LABELS.dayShort + (dayOf(slot) + 1) + " " + slotTime(slot);
 
@@ -237,10 +248,16 @@ function renderSettings() {
   for (const [v, l] of [[30, LABELS.minutes30], [60, LABELS.minutes60]]) {
     select.append(el("option", { value: v, text: l, selected: s.slotMinutes === v }));
   }
+  const hourSelect = (prop, from, to) => {
+    const sel = el("select");
+    sel.dataset.setting = prop;
+    for (let h = from; h <= to; h += 0.5) sel.append(el("option", { value: h, text: formatHour(h), selected: s[prop] === h }));
+    return el("label", { text: LABELS[prop] }, sel);
+  };
   box.append(el("div", { class: "settings-grid" },
     numField(LABELS.days, "days", 1, 14, 1),
-    numField(LABELS.startHour, "startHour", 0, 23, 1),
-    numField(LABELS.endHour, "endHour", 1, 24, 1),
+    hourSelect("startHour", 0, 23.5),
+    hourSelect("endHour", 0.5, MAX_END),
     el("label", { text: LABELS.slotLength }, select),
     numField(LABELS.minDaily, "minDaily", 0, 24, 0.5),
     numField(LABELS.maxDaily, "maxDaily", 0, 24, 0.5)));
@@ -260,7 +277,10 @@ function renderTasks() {
     const del = el("button", { type: "button", text: LABELS.deleteTask });
     del.dataset.action = "task-delete";
     del.dataset.id = t.id;
-    box.append(el("div", { class: "row" }, color, name, del));
+    const need = el("input", { type: "number", value: taskDefaultNeed(t.id), min: 0, max: 99, step: 1 });
+    need.dataset.action = "task-default-need";
+    need.dataset.id = t.id;
+    box.append(el("div", { class: "row" }, color, name, el("label", { class: "inline", title: LABELS.defaultNeed }, "👥", need), del));
   }
   box.append(el("form", { class: "row", id: "task-form" },
     el("input", { type: "text", id: "task-input", placeholder: LABELS.taskPlaceholder }),
@@ -298,40 +318,48 @@ function renderTimeline() {
     box.append(el("p", { class: "empty", text: LABELS.noTasksTimeline }));
     return;
   }
-  const n = totalSlots();
   const perDay = slotsPerDay();
-  const head = el("tr", {}, el("th", { text: LABELS.taskColumn }));
-  for (let s = 0; s < n; s++) {
-    head.append(el("th", { text: slotLabel(s), class: s % perDay === 0 ? "day-start" : "" }));
-  }
-  const body = el("tbody");
-  for (const t of state.tasks) {
-    const row = el("tr", {}, el("th", { class: "task-head", text: t.name }));
-    row.firstChild.style.borderLeftColor = t.color;
-    for (let s = 0; s < n; s++) {
-      const need = getNeed(t.id, s);
-      // A block continues across slots with the same need, never across days
-      const mergePrev = s % perDay !== 0 && getNeed(t.id, s - 1) === need;
-      const mergeNext = (s + 1) % perDay !== 0 && s + 1 < n && getNeed(t.id, s + 1) === need;
-      const cls = ["cell", cellStatus(t.id, s)];
-      if (s % perDay === 0) cls.push("day-start");
-      if (mergePrev) cls.push("merge-prev"); else cls.push("block-start");
-      if (mergeNext) cls.push("merge-next"); else cls.push("block-end");
-      const minus = el("button", { type: "button", class: "ctrl minus", text: "−", title: LABELS.decrease, disabled: need === 0 });
-      minus.dataset.action = "need-minus";
-      const plus = el("button", { type: "button", class: "ctrl plus", text: "+", title: LABELS.increase });
-      plus.dataset.action = "need-plus";
-      const td = el("td", { class: cls.join(" ") },
-        el("div", { class: "count", text: getAssigned(t.id, s).length + "/" + need }), minus, plus);
-      td.dataset.task = t.id;
-      td.dataset.slot = s;
-      row.append(td);
+  const days = el("div", { class: "days" });
+  for (let d = 0; d < state.settings.days; d++) {
+    const head = el("tr", {}, el("th", { class: "time-head" }));
+    for (const t of state.tasks) {
+      const th = el("th", { class: "task-head", text: t.name });
+      th.style.borderTopColor = t.color;
+      head.append(th);
     }
-    body.append(row);
+    const body = el("tbody");
+    for (let i = 0; i < perDay; i++) {
+      const s = d * perDay + i;
+      const row = el("tr", {}, el("th", { class: "time-label" + (i % (60 / state.settings.slotMinutes) === 0 ? "" : " minor"), text: slotTime(s) }));
+      for (const t of state.tasks) {
+        const need = getNeed(t.id, s);
+        // A block continues across slots with the same need, never across days
+        const mergePrev = i > 0 && getNeed(t.id, s - 1) === need;
+        const mergeNext = i + 1 < perDay && getNeed(t.id, s + 1) === need;
+        const cls = ["cell", cellStatus(t.id, s)];
+        cls.push(mergePrev ? "merge-prev" : "block-start");
+        cls.push(mergeNext ? "merge-next" : "block-end");
+        const minus = el("button", { type: "button", class: "ctrl minus", text: "−", title: LABELS.decrease, disabled: need === 0 });
+        minus.dataset.action = "need-minus";
+        const plus = el("button", { type: "button", class: "ctrl plus", text: "+", title: LABELS.increase });
+        plus.dataset.action = "need-plus";
+        const names = getAssigned(t.id, s).map(getPerson).filter(Boolean)
+          .map((p) => el("span", { class: "chip", text: p.name, title: p.name }));
+        const td = el("td", { class: cls.join(" ") },
+          el("span", { class: "count", text: getAssigned(t.id, s).length + "/" + need }),
+          el("span", { class: "chips" }, ...names), el("span", { class: "ctrls" }, minus, plus));
+        td.dataset.task = t.id;
+        td.dataset.slot = s;
+        row.append(td);
+      }
+      body.append(row);
+    }
+    days.append(el("div", { class: "day" }, el("h3", { text: LABELS.dayTitle + " " + (d + 1) }),
+      el("div", { class: "table-wrap" }, el("table", { class: "timeline" }, el("thead", {}, head), body))));
   }
-  box.append(el("table", { class: "timeline" }, el("thead", {}, head), body));
+  box.append(days);
   const dot = (c, l) => el("span", {}, el("span", { class: "dot", style: "background:" + c }), l);
-  box.append(el("div", { class: "legend" }, dot("#16a34a", LABELS.legendOk), dot("#f59e0b", LABELS.legendUnder), dot("#dc2626", LABELS.legendOver)));
+  box.append(el("div", { class: "legend" }, dot("#22c55e", LABELS.legendOk), dot("#f59e0b", LABELS.legendUnder), dot("#ef4444", LABELS.legendOver)));
 }
 
 /** Secondary read-only view: rows = people, columns = slots, cell = assigned task name */
@@ -406,9 +434,9 @@ function render() {
  * -------------------------------------------------------------------------- */
 function applySettings(prop, rawValue) {
   const next = Object.assign({}, state.settings, { [prop]: Number(rawValue) });
-  const valid = next.days >= 1 && next.days <= 14 && next.endHour > next.startHour && next.endHour <= 24
-    && next.startHour >= 0 && next.minDaily >= 0 && next.maxDaily >= next.minDaily
-    && (((next.endHour - next.startHour) * 60) % next.slotMinutes === 0);
+  const valid = next.days >= 1 && next.days <= 14 && next.endHour > next.startHour && next.endHour <= MAX_END
+    && next.startHour >= 0 && next.startHour < 24 && next.endHour - next.startHour <= 24 && next.minDaily >= 0 && next.maxDaily >= next.minDaily
+    && Number.isInteger(((next.endHour - next.startHour) * 60) / next.slotMinutes);
   if (!valid) { alert(LABELS.invalidSettings); render(); return; }
   const timeChanged = ["days", "startHour", "endHour", "slotMinutes"].includes(prop);
   if (timeChanged) {
@@ -428,6 +456,11 @@ function setupEvents() {
     else if (t.dataset.action === "task-rename") {
       const task = getTask(t.dataset.id);
       if (task) { task.name = t.value.trim() || task.name; commit(); }
+    } else if (t.dataset.action === "task-default-need") {
+      const task = getTask(t.dataset.id);
+      const v = Math.floor(Number(t.value));
+      if (task && v >= 0 && v <= 99) task.defaultNeed = v;
+      commit();
     } else if (t.dataset.action === "task-color") {
       const task = getTask(t.dataset.id);
       if (task) { task.color = t.value; commit(); }
