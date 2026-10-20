@@ -381,6 +381,7 @@ function renderLock() {
   b.textContent = locked ? LABELS.lockedBtn : LABELS.unlockedBtn;
   b.title = locked ? LABELS.lockedHint : LABELS.unlockedHint;
   b.classList.toggle("is-locked", locked);
+  $("btn-auto-fill").disabled = !state.people.length || !state.tasks.length;
   document.body.classList.toggle("locked", locked);
 }
 
@@ -928,6 +929,10 @@ document.title = LABELS.appTitle;
 $("app-title").textContent = LABELS.appTitle;
 $("btn-export").textContent = LABELS.export;
 $("btn-history-clear").textContent = LABELS.historyClear;
+$("btn-auto-fill").textContent = "✨ " + LABELS.autoFill;
+$("btn-auto-fill").title = LABELS.autoFillHint;
+$("btn-clear-all").textContent = "🗑 " + LABELS.clearAll;
+$("btn-clear-all").title = LABELS.clearAllHint;
 $("btn-import").textContent = LABELS.import;
 $("timeline-summary").textContent = LABELS.timelineTitle;
 $("history-summary").textContent = LABELS.historyTitle;
