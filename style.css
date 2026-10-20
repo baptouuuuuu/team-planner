@@ -37,15 +37,20 @@ small { color: var(--muted); }
 .table-wrap { overflow-x: auto; }
 table.timeline { border-collapse: separate; border-spacing: 3px 3px; }
 .timeline th, .timeline td { padding: 0; }
-.timeline .task-head { width: 170px; min-width: 170px; max-width: 170px; overflow: hidden; text-overflow: ellipsis; padding: 6px 8px; font-size: .8rem; font-weight: 600; background: var(--panel2); border-top: 3px solid; border-radius: 8px 8px 0 0; }
+.timeline .task-head { width: 150px; min-width: 150px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; padding: 6px 8px; font-size: .8rem; font-weight: 600; background: var(--panel2); border-top: 3px solid; border-radius: 8px 8px 0 0; }
 .timeline .time-label { font-size: .7rem; font-weight: 500; color: var(--text); text-align: right; padding-right: 8px; white-space: nowrap; vertical-align: top; }
 .timeline .time-label.minor { color: var(--muted); }
-.cell { position: relative; height: 72px; width: 170px; min-width: 170px; max-width: 170px; overflow: hidden; padding: 3px 6px; cursor: pointer; background: var(--panel2);  user-select: none; vertical-align: top; }
+.cell { position: relative; height: 120px; width: 150px; min-width: 150px; max-width: 150px; overflow: hidden; padding: 6px 8px 22px; cursor: pointer; background: var(--panel2);  user-select: none; vertical-align: top; }
 .cell { border: 1px solid var(--border); border-radius: 8px; }
-.cell .fill-handle { position: absolute; right: 0; bottom: 0; width: 12px; height: 12px; background: var(--accent); border-radius: 3px 0 5px 0; cursor: crosshair; display: block; touch-action: none; z-index: 2; }
+.cell .fill-handle { position: absolute; left: 50%; bottom: 3px; transform: translateX(-50%); width: 56px; height: 16px; background: var(--accent); color: #fff; border-radius: 8px; cursor: ns-resize; display: flex; align-items: center; justify-content: center; font-size: .6rem; line-height: 1; letter-spacing: 1px; touch-action: none; z-index: 2; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+.cell .fill-handle::before { content: '▼ ▼ ▼'; }
+.cell .fill-handle:hover { background: #818cf8; }
+body.filling, body.filling * { cursor: ns-resize !important; user-select: none; }
+.fill-ghost { position: absolute; inset: 0; padding: 6px 8px 22px; background: rgba(99,102,241,.28); pointer-events: none; z-index: 1; }
+.fill-tip { position: fixed; z-index: 20; pointer-events: none; background: var(--accent); color: #fff; font-weight: 700; font-size: .8rem; padding: 4px 10px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.5); white-space: nowrap; }
 .cell.fill-source { outline: 2px solid var(--accent); outline-offset: -2px; }
 .cell.fill-target { outline: 2px dashed var(--accent); outline-offset: -2px; animation: fill-pulse .7s ease-in-out infinite alternate; }
-@keyframes fill-pulse { from { box-shadow: inset 0 0 0 0 rgba(99,102,241,.0); transform: scale(1); } to { box-shadow: inset 0 0 14px 2px rgba(99,102,241,.7); transform: scale(1.03); } }
+@keyframes fill-pulse { from { box-shadow: inset 0 0 0 0 rgba(99,102,241,.0); } to { box-shadow: inset 0 0 14px 2px rgba(99,102,241,.7); } }
 .timeline .time-label.fill-hit { color: #fff; background: var(--accent); border-radius: 6px; font-weight: 700; animation: fill-pulse .7s ease-in-out infinite alternate; }
 .cell.fill-done { animation: fill-done .5s ease-out; }
 @keyframes fill-done { 0% { box-shadow: 0 0 0 0 rgba(99,102,241,.9); } 100% { box-shadow: 0 0 0 12px rgba(99,102,241,0); } }
@@ -54,13 +59,14 @@ table.timeline { border-collapse: separate; border-spacing: 3px 3px; }
 .cell.over { background: rgba(245,158,11,.18); border-left-color: var(--low); }
 .cell.zero { background: transparent; border-left-color: var(--border); }
 .cell { border-left-width: 3px; }
-.cell .cell-inner { display: flex; align-items: flex-start; gap: 6px; height: 100%; }
+.cell .cell-inner { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; height: 100%; }
+.cell .count { align-self: flex-start; }
 .cell .count { font-weight: 700; font-size: .7rem; padding: 1px 7px; border-radius: 999px; background: rgba(255,255,255,.1); flex: none; }
-.cell .chips { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 3px; flex: 1; min-width: 0; padding-right: 14px; }
+.cell .chips { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 3px; flex: 1; min-width: 0; width: 100%; overflow: hidden; }
 .cell.dense .chips { gap: 1px; }
 .cell.dense .chip { padding: 0 3px; font-size: .56rem; line-height: 1.25; max-width: 52px; margin-right: -2px; }
 .cell .chip { font-size: .62rem; line-height: 1.4; padding: 0 6px; border-radius: 999px; background: rgba(255,255,255,.14); max-width: 70px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; }
-.cell .ctrls { display: inline-flex; flex: none; margin-left: auto; background: rgba(0,0,0,.35); border-radius: 999px; padding: 1px; gap: 1px; opacity: .35; transition: opacity .15s; }
+.cell .ctrls { position: absolute; top: 5px; right: 6px; display: inline-flex; flex: none; background: rgba(0,0,0,.35); border-radius: 999px; padding: 1px; gap: 1px; opacity: .35; transition: opacity .15s; }
 .cell:hover .ctrls, .cell:focus-within .ctrls { opacity: 1; }
 .cell .ctrl { width: 20px; height: 20px; padding: 0; line-height: 1; font-size: .85rem; border: 0; border-radius: 50%; background: transparent; display: inline-flex; align-items: center; justify-content: center; }
 .cell .ctrl:hover:not(:disabled) { background: var(--accent); }

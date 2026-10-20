@@ -514,7 +514,12 @@ function setupEvents() {
 
   // Drag the fill handle of a cell down to copy its team onto the slots below
   let fill = null; // { taskId, from, to }
-  const clearFill = () => document.querySelectorAll(".fill-target, .fill-source, .fill-hit").forEach((n) => n.classList.remove("fill-target", "fill-source", "fill-hit"));
+  const clearFill = () => {
+    document.querySelectorAll(".fill-ghost").forEach((n) => n.remove());
+    document.querySelectorAll(".fill-target, .fill-source, .fill-hit").forEach((n) => n.classList.remove("fill-target", "fill-source", "fill-hit"));
+    document.body.classList.remove("filling");
+    if (tip) { tip.remove(); tip = null; }
+  };
   document.addEventListener("pointerdown", (e) => {
     const h = e.target.closest(".fill-handle");
     const cell = h && h.closest("td.cell");
@@ -523,22 +528,39 @@ function setupEvents() {
     fill = { taskId: cell.dataset.task, from: Number(cell.dataset.slot), to: Number(cell.dataset.slot) };
     cell.classList.add("fill-source");
   });
+  const cellAt = (taskId, slot) => document.querySelector('td.cell[data-task="' + taskId + '"][data-slot="' + slot + '"]');
+  let tip = null;
   document.addEventListener("pointermove", (e) => {
     if (!fill) return;
-    const c = document.elementFromPoint(e.clientX, e.clientY);
-    const cell = c && c.closest("td.cell");
-    if (!cell || cell.dataset.task !== fill.taskId) return;
-    const s = Number(cell.dataset.slot);
-    if (dayOf(s) !== dayOf(fill.from)) return;
-    fill.to = Math.max(s, fill.from);
+    // Follow the pointer vertically within the source column, whichever column it is over
+    const first = cellAt(fill.taskId, fill.from);
+    if (!first) return;
+    let to = fill.from;
+    for (let k = fill.from + 1; dayOf(k) === dayOf(fill.from); k++) {
+      const n = cellAt(fill.taskId, k);
+      if (!n) break;
+      if (n.getBoundingClientRect().top <= e.clientY) to = k; else break;
+    }
+    fill.to = to;
     clearFill();
+    document.body.classList.add("filling");
+    const src = first.querySelector(".cell-inner");
     for (let k = fill.from; k <= fill.to; k++) {
-      const n = document.querySelector('td.cell[data-task="' + fill.taskId + '"][data-slot="' + k + '"]');
+      const n = cellAt(fill.taskId, k);
       if (!n) continue;
       n.classList.add(k === fill.from ? "fill-source" : "fill-target");
       const lbl = n.parentElement.querySelector(".time-label");
       if (lbl) lbl.classList.add("fill-hit");
+      if (k > fill.from && src) {
+        const ghost = el("div", { class: "fill-ghost" });
+        ghost.append(src.cloneNode(true));
+        n.append(ghost);
+      }
     }
+    if (!tip) { tip = el("div", { class: "fill-tip" }); document.body.append(tip); }
+    tip.textContent = slotTime(fill.from) + " → " + slotTime(fill.to + 1) + " (" + (fill.to - fill.from) + ")";
+    tip.style.left = e.clientX + 16 + "px";
+    tip.style.top = e.clientY + 12 + "px";
   });
   document.addEventListener("pointerup", () => {
     if (!fill) return;
