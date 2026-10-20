@@ -4,12 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Team Planner</title>
-  <link rel="stylesheet" href="style.css?v=8">
+  <link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
   <!-- All visible texts are injected by app.js from the LABELS object -->
   <header><h1 id="app-title"></h1>
     <div class="toolbar">
+      <button id="btn-lock" type="button"></button>
       <button id="btn-export" type="button"></button>
       <button id="btn-import" type="button"></button>
       <button id="btn-reset" type="button"></button>
@@ -22,10 +23,11 @@
       <section id="tasks-section" class="panel"></section>
       <section id="people-section" class="panel"></section>
     </div>
-    <section id="timeline-section" class="panel wide"></section>
     <section id="byperson-section" class="panel wide"></section>
+    <details id="timeline-details" class="panel wide fold"><summary id="timeline-summary"></summary><section id="timeline-section"></section></details>
+    <details id="history-details" class="panel wide fold"><summary id="history-summary"></summary><section id="history-section"></section></details>
   </main>
   <div id="popup-overlay" class="overlay" hidden></div>
-  <script src="app.js?v=8"></script>
+  <script src="app.js?v=9"></script>
 </body>
 </html>

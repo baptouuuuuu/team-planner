@@ -101,3 +101,20 @@ body.filling, body.filling * { cursor: ns-resize !important; user-select: none; 
 .mini td.pcell:hover { filter: brightness(1.3); outline: 1px solid var(--accent); }
 .mini { border-collapse: separate; border-spacing: 0; }
 .mini th:first-child { position: sticky; left: 0; z-index: 3; background: var(--panel2); text-align: left; min-width: 90px; box-shadow: 2px 0 4px rgba(0,0,0,.35); }
+
+details.fold > summary { cursor: pointer; font-weight: 700; font-size: 1rem; list-style: none; user-select: none; }
+details.fold > summary::before { content: "▸ "; color: var(--accent); }
+details.fold[open] > summary::before { content: "▾ "; }
+details.fold[open] > summary { margin-bottom: 10px; }
+#timeline-section .section-head h2 { display: none; }
+#timeline-section .section-head { justify-content: flex-end; }
+#btn-lock { border-radius: 999px; font-weight: 600; }
+#btn-lock.is-locked { border-color: var(--high); color: #fca5a5; }
+#btn-lock:not(.is-locked) { border-color: var(--ok); color: #86efac; }
+#btn-lock.shake { animation: shake .4s; }
+@keyframes shake { 20%, 60% { transform: translateX(-5px); } 40%, 80% { transform: translateX(5px); } }
+body.locked .cell, body.locked .pcell, body.locked .fill-handle { cursor: not-allowed; }
+body.locked .fill-handle, body.locked .ctrls { opacity: .25; }
+.history { list-style: none; margin: 0; padding: 0; max-height: 360px; overflow-y: auto; font-size: .82rem; }
+.history li { display: flex; gap: 12px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+.history time { color: var(--muted); white-space: nowrap; flex: none; }

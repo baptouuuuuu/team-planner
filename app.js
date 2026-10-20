@@ -11,6 +11,15 @@ const LABELS = {
   export: "Exporter (JSON)",
   import: "Importer (JSON)",
   resetAll: "Tout réinitialiser",
+  lockedBtn: "🔒 Verrouillé",
+  unlockedBtn: "🔓 Modification activée",
+  lockedHint: "Verrouillé : cliquez pour autoriser les modifications",
+  unlockedHint: "Cliquez pour verrouiller et éviter les modifications involontaires",
+  lockedWarn: "Planning verrouillé : activez la modification (bouton en haut) pour changer quelque chose.",
+  historyTitle: "Historique des modifications",
+  historyEmpty: "Aucune modification pour le moment.",
+  historyClear: "Vider l'historique",
+  historyMany: "modifications",
   autoFill: "Remplir automatiquement",
   clearAll: "Tout supprimer",
   clearAllHint: "Supprime toutes les affectations du chronogramme",
@@ -94,6 +103,7 @@ function defaultState() {
     needs: {},       // "taskId|slot" -> required count (missing = DEFAULT_NEED)
     assignments: {}, // "taskId|slot" -> array of person ids
     nextId: 1,
+    history: [],     // [{ t: ISO date, text }] newest first
   };
 }
 
@@ -298,8 +308,117 @@ function deletePerson(personId) {
   commit();
 }
 
+/* --- Edit lock: the planner starts locked so nothing is changed by accident --- */
+let locked = true;
+
+/** True when the element triggers a modification of the planner data */
+function isMutating(target) {
+  if (!target || !target.closest) return false;
+  if (target.closest("td.cell, td.pcell, .fill-handle, #btn-reset, #btn-import")) return true;
+  if (target.closest("#task-form, #person-form")) return true;
+  const a = target.closest("[data-action]");
+  if (a && !["popup-close", "lock-toggle", "history-clear"].includes(a.dataset.action)) return true;
+  if (target.closest("[data-setting]")) return true;
+  return false;
+}
+
+function warnLocked() {
+  const b = $("btn-lock");
+  b.classList.remove("shake");
+  void b.offsetWidth;
+  b.classList.add("shake");
+  b.title = LABELS.lockedWarn;
+}
+
+function renderLock() {
+  const b = $("btn-lock");
+  b.textContent = locked ? LABELS.lockedBtn : LABELS.unlockedBtn;
+  b.title = locked ? LABELS.lockedHint : LABELS.unlockedHint;
+  b.classList.toggle("is-locked", locked);
+  document.body.classList.toggle("locked", locked);
+}
+
+/* --- History: every commit is diffed against the previous state and logged --- */
+const HISTORY_MAX = 300;
+const snapshot = () => JSON.parse(JSON.stringify(Object.assign({}, state, { history: undefined })));
+let lastSnapshot = snapshot();
+
+function describeChanges(prev, cur) {
+  const out = [];
+  const name = (list, id) => { const x = list.find((i) => i.id === id); return x ? x.name : id; };
+  const per = Math.round(((cur.settings.endHour - cur.settings.startHour) * 60) / cur.settings.slotMinutes);
+  const when = (slot) => {
+    const m = cur.settings.startHour * 60 + (slot % per) * cur.settings.slotMinutes;
+    return (per ? LABELS.dayShort + (Math.floor(slot / per) + 1) + " " : "") + formatMinutes(m);
+  };
+  for (const t of cur.tasks) {
+    const o = prev.tasks.find((x) => x.id === t.id);
+    if (!o) out.push("Tâche ajoutée : " + t.name);
+    else {
+      if (o.name !== t.name) out.push("Tâche renommée : " + o.name + " → " + t.name);
+      if (o.color !== t.color) out.push("Couleur modifiée : " + t.name);
+      if (o.defaultNeed !== t.defaultNeed) out.push("Besoin par défaut de " + t.name + " : " + (o.defaultNeed === undefined ? DEFAULT_NEED : o.defaultNeed) + " → " + t.defaultNeed);
+    }
+  }
+  for (const t of prev.tasks) if (!cur.tasks.some((x) => x.id === t.id)) out.push("Tâche supprimée : " + t.name);
+  for (const p of cur.people) if (!prev.people.some((x) => x.id === p.id)) out.push("Personne ajoutée : " + p.name);
+  for (const p of prev.people) if (!cur.people.some((x) => x.id === p.id)) out.push("Personne supprimée : " + p.name);
+  for (const k of Object.keys(cur.settings)) {
+    if (prev.settings[k] !== cur.settings[k]) out.push("Paramètre " + (LABELS[k] || k) + " : " + prev.settings[k] + " → " + cur.settings[k]);
+  }
+  const slotChanges = [];
+  const keys = new Set(Object.keys(prev.assignments).concat(Object.keys(cur.assignments)));
+  for (const k of keys) {
+    const [tid, slot] = k.split("|");
+    const before = prev.assignments[k] || [], after = cur.assignments[k] || [];
+    const tname = name(cur.tasks.concat(prev.tasks), tid);
+    for (const id of after) if (!before.includes(id)) slotChanges.push({ add: true, text: name(cur.people.concat(prev.people), id) + " ajouté à " + tname + " (" + when(Number(slot)) + ")" });
+    for (const id of before) if (!after.includes(id)) slotChanges.push({ add: false, text: name(cur.people.concat(prev.people), id) + " retiré de " + tname + " (" + when(Number(slot)) + ")" });
+  }
+  if (slotChanges.length > 6) {
+    const n = slotChanges.filter((c) => c.add).length;
+    out.push(n + " affectation(s) ajoutée(s), " + (slotChanges.length - n) + " retirée(s)");
+  } else slotChanges.forEach((c) => out.push(c.text));
+  const needKeys = new Set(Object.keys(prev.needs).concat(Object.keys(cur.needs)));
+  const needChanges = [];
+  for (const k of needKeys) {
+    if (prev.needs[k] === cur.needs[k]) continue;
+    const [tid, slot] = k.split("|");
+    needChanges.push("Besoin " + name(cur.tasks.concat(prev.tasks), tid) + " (" + when(Number(slot)) + ") : " + (prev.needs[k] === undefined ? "défaut" : prev.needs[k]) + " → " + (cur.needs[k] === undefined ? "défaut" : cur.needs[k]));
+  }
+  if (needChanges.length > 6) out.push(needChanges.length + " besoins modifiés");
+  else out.push(...needChanges);
+  return out;
+}
+
+function recordHistory() {
+  const cur = snapshot();
+  let texts = [];
+  try { texts = describeChanges(lastSnapshot, cur); } catch (e) { texts = []; }
+  lastSnapshot = cur;
+  if (!texts.length) return;
+  const t = new Date().toISOString();
+  if (!Array.isArray(state.history)) state.history = [];
+  state.history = texts.map((text) => ({ t, text })).reverse().concat(state.history).slice(0, HISTORY_MAX);
+}
+
+function renderHistory() {
+  const box = $("history-section");
+  const clear = el("button", { type: "button", text: LABELS.historyClear });
+  clear.dataset.action = "history-clear";
+  box.replaceChildren(el("div", { class: "section-head" }, el("span", { class: "empty", text: state.history.length + " " + LABELS.historyMany }), clear));
+  if (!state.history.length) { box.append(el("p", { class: "empty", text: LABELS.historyEmpty })); return; }
+  const list = el("ul", { class: "history" });
+  for (const h of state.history) {
+    const d = new Date(h.t);
+    list.append(el("li", {}, el("time", { text: d.toLocaleDateString("fr-FR") + " " + d.toLocaleTimeString("fr-FR") }), el("span", { text: h.text })));
+  }
+  box.append(list);
+}
+
 /** Save then re-render everything (including the popup if open) */
 function commit() {
+  recordHistory();
   saveState();
   render();
 }
@@ -553,6 +672,8 @@ function renderAll() {
   renderPeople();
   renderTimeline();
   renderByPerson();
+  renderHistory();
+  renderLock();
   renderPopup();
 }
 
@@ -578,6 +699,17 @@ function applySettings(prop, rawValue) {
 let suppressClick = false;
 
 function setupEvents() {
+  // Lock guard (capture phase, registered first): blocks every modification while locked
+  const guard = (e) => {
+    if (!locked || !isMutating(e.target)) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    warnLocked();
+    if (e.type === "change") render();
+  };
+  for (const type of ["click", "change", "submit", "pointerdown"]) document.addEventListener(type, guard, true);
+  $("btn-lock").addEventListener("click", () => { locked = !locked; renderLock(); });
+
   // Settings, task rename / color
   document.addEventListener("change", (e) => {
     const t = e.target;
@@ -622,6 +754,7 @@ function setupEvents() {
     if (e.target.closest(".fill-handle")) return;
     if (action === "task-delete" && confirm(LABELS.confirmDeleteTask)) deleteTask(actionEl.dataset.id);
     else if (action === "person-delete" && confirm(LABELS.confirmDeletePerson)) deletePerson(actionEl.dataset.id);
+    else if (action === "history-clear") { state.history = []; saveState(); renderHistory(); }
     else if (action === "auto-fill") autoFill();
     else if (action === "clear-all" && confirm(LABELS.confirmClearAll)) clearAllAssignments();
     else if (action === "need-plus" && cell) adjustNeed(cell.dataset.task, Number(cell.dataset.slot), 1);
@@ -741,6 +874,8 @@ document.title = LABELS.appTitle;
 $("app-title").textContent = LABELS.appTitle;
 $("btn-export").textContent = LABELS.export;
 $("btn-import").textContent = LABELS.import;
+$("timeline-summary").textContent = LABELS.timelineTitle;
+$("history-summary").textContent = LABELS.historyTitle;
 $("btn-reset").textContent = LABELS.resetAll;
 setupEvents();
 render();
