@@ -141,3 +141,10 @@ header .toolbar { width: 100%; justify-content: center; flex-wrap: wrap; gap: 8p
 .tool-group { flex-wrap: wrap; justify-content: center; }
 .tool-group button { padding: 4px 10px; font-size: .78rem; white-space: nowrap; }
 #btn-lock { padding: 6px 16px; font-size: .8rem; white-space: nowrap; }
+
+#btn-mode { border-radius: 999px; padding: 6px 16px; font-size: .8rem; font-weight: 600; white-space: nowrap; }
+#btn-mode.is-setup { border-color: #8b5cf6; color: #c4b5fd; background: rgba(139,92,246,.18); }
+body.normal-mode #settings-section, body.normal-mode #tasks-section,
+body.normal-mode #person-form, body.normal-mode [data-action="person-delete"],
+body.normal-mode #btn-import, body.normal-mode #btn-reset { display: none; }
+body.normal-mode main { grid-template-columns: 1fr; }

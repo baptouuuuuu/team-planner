@@ -11,6 +11,10 @@ const LABELS = {
   export: "Exporter (JSON)",
   import: "Importer (JSON)",
   resetAll: "Tout réinitialiser",
+  modeNormal: "👁 Mode normal",
+  modeSetup: "⚙ Mode paramétrage",
+  modeNormalHint: "Cliquez pour passer en mode paramétrage (périodes, tâches, personnes)",
+  modeSetupHint: "Cliquez pour revenir au mode normal",
   lockedBtn: "🔒 Verrouillé",
   unlockedBtn: "🔓 Modification activée",
   lockedHint: "Verrouillé : cliquez pour autoriser les modifications",
@@ -376,6 +380,18 @@ function warnLocked() {
   b.title = LABELS.lockedWarn;
 }
 
+/* --- Display mode: "normal" hides edit/delete buttons and the periods settings; "setup" shows them --- */
+let setupMode = false;
+
+function renderMode() {
+  const b = $("btn-mode");
+  b.textContent = setupMode ? LABELS.modeSetup : LABELS.modeNormal;
+  b.title = setupMode ? LABELS.modeSetupHint : LABELS.modeNormalHint;
+  b.classList.toggle("is-setup", setupMode);
+  document.body.classList.toggle("setup-mode", setupMode);
+  document.body.classList.toggle("normal-mode", !setupMode);
+}
+
 function renderLock() {
   const b = $("btn-lock");
   b.textContent = locked ? LABELS.lockedBtn : LABELS.unlockedBtn;
@@ -719,6 +735,7 @@ function renderAll() {
   renderByPerson();
   renderHistory();
   renderLock();
+  renderMode();
   renderPopup();
 }
 
@@ -757,6 +774,11 @@ function setupEvents() {
     if (locked && !(await requireCode())) return; // locking never needs the code, unlocking does
     locked = !locked;
     renderLock();
+  });
+  $("btn-mode").addEventListener("click", async () => {
+    if (!setupMode && !(await requireCode())) return; // entering setup needs the code, leaving does not
+    setupMode = !setupMode;
+    renderMode();
   });
   $("btn-history-clear").addEventListener("click", async () => {
     if (!confirm(LABELS.confirmHistoryClear) || !(await requireCode())) return;
