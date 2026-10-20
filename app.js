@@ -63,6 +63,7 @@ const LABELS = {
   popupClose: "Fermer",
   popupNoPeople: "Ajoutez d'abord des personnes.",
   popupBusyOn: "déjà sur",
+  fillHandle: "Étirer vers le bas pour copier l'équipe et le besoin",
   byPersonTitle: "Vue par personne (lecture seule)",
 };
 
@@ -189,6 +190,17 @@ function toggleAssignment(taskId, slot, personId) {
     state.assignments[k] = list.filter((id) => id !== personId);
   } else if (!busyTask(personId, slot, taskId)) {
     state.assignments[k] = list.concat(personId);
+  }
+  commit();
+}
+
+/** Copies need + team of a slot onto the following slots (same task); people busy elsewhere are skipped */
+function copySlot(taskId, fromSlot, toSlot) {
+  const need = getNeed(taskId, fromSlot);
+  const team = getAssigned(taskId, fromSlot);
+  for (let s = fromSlot + 1; s <= toSlot; s++) {
+    state.needs[key(taskId, s)] = need;
+    state.assignments[key(taskId, s)] = team.filter((id) => !busyTask(id, s, taskId));
   }
   commit();
 }
@@ -333,12 +345,7 @@ function renderTimeline() {
       const row = el("tr", {}, el("th", { class: "time-label" + (i % (60 / state.settings.slotMinutes) === 0 ? "" : " minor"), text: slotTime(s) }));
       for (const t of state.tasks) {
         const need = getNeed(t.id, s);
-        // A block continues across slots with the same need, never across days
-        const mergePrev = i > 0 && getNeed(t.id, s - 1) === need;
-        const mergeNext = i + 1 < perDay && getNeed(t.id, s + 1) === need;
         const cls = ["cell", cellStatus(t.id, s)];
-        cls.push(mergePrev ? "merge-prev" : "block-start");
-        cls.push(mergeNext ? "merge-next" : "block-end");
         const minus = el("button", { type: "button", class: "ctrl minus", text: "−", title: LABELS.decrease, disabled: need === 0 });
         minus.dataset.action = "need-minus";
         const plus = el("button", { type: "button", class: "ctrl plus", text: "+", title: LABELS.increase });
@@ -347,7 +354,8 @@ function renderTimeline() {
           .map((p) => el("span", { class: "chip", text: p.name, title: p.name }));
         const td = el("td", { class: cls.join(" ") },
           el("span", { class: "count", text: getAssigned(t.id, s).length + "/" + need }),
-          el("span", { class: "chips" }, ...names), el("span", { class: "ctrls" }, minus, plus));
+          el("span", { class: "chips" }, ...names), el("span", { class: "ctrls" }, minus, plus),
+          el("span", { class: "fill-handle", title: LABELS.fillHandle }));
         td.dataset.task = t.id;
         td.dataset.slot = s;
         row.append(td);
@@ -448,6 +456,8 @@ function applySettings(prop, rawValue) {
   commit();
 }
 
+let suppressClick = false;
+
 function setupEvents() {
   // Settings, task rename / color
   document.addEventListener("change", (e) => {
@@ -488,6 +498,7 @@ function setupEvents() {
     const action = actionEl && actionEl.dataset.action;
     const cell = e.target.closest("td.cell");
 
+    if (e.target.closest(".fill-handle")) return;
     if (action === "task-delete" && confirm(LABELS.confirmDeleteTask)) deleteTask(actionEl.dataset.id);
     else if (action === "person-delete" && confirm(LABELS.confirmDeletePerson)) deletePerson(actionEl.dataset.id);
     else if (action === "need-plus" && cell) adjustNeed(cell.dataset.task, Number(cell.dataset.slot), 1);
@@ -497,6 +508,41 @@ function setupEvents() {
     else if (e.target === $("popup-overlay")) { openPopup = null; renderPopup(); } // click outside
     else if (cell && !action) { openPopup = { taskId: cell.dataset.task, slot: Number(cell.dataset.slot) }; renderPopup(); }
   });
+
+  // Drag the fill handle of a cell down to copy its team onto the slots below
+  let fill = null; // { taskId, from, to }
+  const clearFill = () => document.querySelectorAll(".fill-target").forEach((n) => n.classList.remove("fill-target"));
+  document.addEventListener("pointerdown", (e) => {
+    const h = e.target.closest(".fill-handle");
+    const cell = h && h.closest("td.cell");
+    if (!cell) return;
+    e.preventDefault();
+    fill = { taskId: cell.dataset.task, from: Number(cell.dataset.slot), to: Number(cell.dataset.slot) };
+  });
+  document.addEventListener("pointermove", (e) => {
+    if (!fill) return;
+    const c = document.elementFromPoint(e.clientX, e.clientY);
+    const cell = c && c.closest("td.cell");
+    if (!cell || cell.dataset.task !== fill.taskId) return;
+    const s = Number(cell.dataset.slot);
+    if (dayOf(s) !== dayOf(fill.from)) return;
+    fill.to = Math.max(s, fill.from);
+    clearFill();
+    for (let k = fill.from + 1; k <= fill.to; k++) {
+      const n = document.querySelector('td.cell[data-task="' + fill.taskId + '"][data-slot="' + k + '"]');
+      if (n) n.classList.add("fill-target");
+    }
+  });
+  document.addEventListener("pointerup", () => {
+    if (!fill) return;
+    const f = fill;
+    fill = null;
+    clearFill();
+    if (f.to > f.from) { suppressClick = true; copySlot(f.taskId, f.from, f.to); }
+  });
+  document.addEventListener("click", (e) => {
+    if (suppressClick) { suppressClick = false; e.stopImmediatePropagation(); }
+  }, true);
 
   // Escape closes the popup
   document.addEventListener("keydown", (e) => {
